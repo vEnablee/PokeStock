@@ -5,7 +5,7 @@
 # alle 23:55 (fuso Europe/Rome, così l'ora legale la gestisce il servizio).
 # Per cambiare la frequenza si modifica il cronjob, non questo file.
 #
-# Una scansione completa dei 59 negozi dura circa 150 secondi misurati, più
+# Una scansione completa dura circa 150 secondi misurati, più
 # una settantina di secondi fra checkout, setup di Python e installazione
 # delle dipendenze: in tutto meno di quattro minuti, dentro la finestra
 # di dieci. Se un giorno la superasse, il blocco `concurrency` accoderebbe

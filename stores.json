@@ -847,7 +847,7 @@
       "name": "FedericStore",
       "base_url": "https://federicstore.it",
       "type": "woocommerce_store_api",
-      "enabled": true,
+      "enabled": false,
       "priority": 1,
       "official_retailer": false,
       "kind": "tcg_specialist",
@@ -859,12 +859,12 @@
         "tin",
         "collezione"
       ],
-      "verified_at": "2026-10-02",
       "stats": {
         "pokemon_products": 100,
         "available": 73
       },
-      "notes": "Shop interamente dedicato a Pokemon, prezzi dichiarati allineati al listino ufficiale."
+      "notes": "Shop interamente dedicato a Pokemon, prezzi dichiarati allineati al listino ufficiale.",
+      "disabled_reason": "Rimosso su richiesta il 2026-10-03. Rispondeva 403 agli IP di GitHub Actions (funzionava da IP residenziale italiano), quindi falliva a ogni giro automatico."
     },
     {
       "id": "tonytoys",
