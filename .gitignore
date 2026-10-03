@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.tmp
+.DS_Store
+.streamlit/secrets.toml
+
+# Lo stato vive sul Gist, non sul repository: committarlo creerebbe due
+# fonti di verita' divergenti a ogni run.
+state.json
+state.json.tmp
+history.jsonl
+.cache/
+stores.json.bak
+stores.json.pre-aggiunta
+dashboard*.png
+dash_*.png
+pb_*.png
+rev_*.png
+blend_*.png
+sidebar_*.png
+pokestock.png

@@ -1,0 +1,1911 @@
+{
+  "_README": "Configurazione di PokeStock, monitor di disponibilita' prodotti Pokemon TCG presso e-commerce italiani. Ogni store e' stato verificato con una chiamata HTTP reale il 2026-10-02. Il campo 'verified_at' indica quando; 'last_check' lo aggiorna lo scraper. NON modificare 'type': determina quale adapter viene usato. Per aggiungere un prodotto da monitorare, aggiungi un oggetto in 'targets'.",
+  "version": "1.0.0",
+  "generated_at": "2026-10-02",
+  "settings": {
+    "_comment": "Parametri globali di rete e di comportamento. Sovrascrivibili per-store con le stesse chiavi.",
+    "concurrency": 4,
+    "timeout_seconds": 25,
+    "retries": 2,
+    "retry_backoff_seconds": 3,
+    "follow_redirects": true,
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "accept_language": "it-IT,it;q=0.9,en;q=0.8",
+    "jitter_seconds": [
+      0.3,
+      1.5
+    ],
+    "_jitter_comment": "Ritardo casuale prima di ogni richiesta: evita di colpire tutti i siti nello stesso millisecondo.",
+    "notify_on": "transition_to_available",
+    "_notify_comment": "'transition_to_available' = notifica SOLO quando un prodotto passa da esaurito/assente a disponibile. 'always' = notifica a ogni run (sconsigliato: spam). Richiede state_file.",
+    "state_file": "state.json",
+    "history_file": "history.jsonl",
+    "renotify_after_hours": 12,
+    "_renotify_comment": "Se un prodotto resta disponibile per piu' di N ore, rimanda la notifica una volta sola (utile se ti e' sfuggita).",
+    "max_notifications_per_run": 25,
+    "_max_notif_comment": "Circuit breaker: se un bug di parsing genera centinaia di match, non ti intasa Telegram.",
+    "dry_run": false,
+    "match_mode": "word_boundary",
+    "_match_mode_comment": "OBBLIGATORIO 'word_boundary'. Il match a sottostringa produce falsi positivi gravi, verificati sul campo: 'tin' matcha dentro 'busTINe'/'MarTINelia'/'VicTINi', '30' matcha dentro '3039'/'30cm'/'POS230138'. Implementazione: re.search(r'(?<!\\w)' + re.escape(kw) + r'(?!\\w)', titolo_normalizzato). NB: con questa regola '30' NON matcha '30th' ne' '30esimo' (cifra seguita da lettera = nessun confine): per questo le varianti sono elencate separatamente in ogni gruppo.",
+    "normalize_title": {
+      "lowercase": true,
+      "strip_accents": true,
+      "collapse_whitespace": true,
+      "_comment": "Normalizzazione NFKD + rimozione diacritici, applicata sia al titolo sia alle keyword prima del confronto."
+    },
+    "dedupe_across_targets": true,
+    "_dedupe_comment": "Un ETB 30° matcha sia etb_30th sia etb_qualsiasi. Con questo flag, ogni (store, prodotto) genera UNA sola notifica, attribuita al target con 'priority' piu' bassa. Senza, ricevi 2-3 messaggi per lo stesso oggetto.",
+    "_concurrency_comment": "Store interrogati in parallelo. Tenuto basso: molti di questi negozi stanno su hosting condiviso. 4 store in parallelo bastano a chiudere un giro in ~2 minuti.",
+    "min_seconds_between_requests_per_store": 1.0,
+    "_rate_limit_comment": "Spaziatura minima fra due richieste allo STESSO dominio. Insieme al jitter evita il pattern a raffica che fa scattare le protezioni anti-bot. Non rallenta il giro complessivo perche' gli store vengono interrogati in parallelo fra loro.",
+    "max_product_pages": 15,
+    "_max_product_pages_comment": "Tetto di pagine prodotto visitate per store HTML. Abbassato da 40: sui siti HTML ogni prodotto costa una richiesta, ed e' li' che si rischia il ban.",
+    "cache_ttl_seconds": 0,
+    "_cache_comment": "Cache su disco delle risposte HTTP, in .cache/. Tenere 0 in produzione. In sviluppo usare --cache (TTL 3600): rilanciare lo scraper non costa NESSUNA richiesta finche' le voci non scadono. Indispensabile per iterare sul codice senza farsi bannare.",
+    "_429_comment": "Un HTTP 429 viene trattato come errore ritentabile con backoff, non come disponibilita' sconosciuta: meglio perdere un giro che insistere.",
+    "_user_agent_comment": "Firefox, non Chrome. Verificato il 2026-10-02 da IP residenziale italiano: diversi negozi rispondono 403 alla stringa di Chrome e 200 a qualunque altra (regola anti-scraper che prende di mira quell'UA). Con Firefox tornano raggiungibili 6 negozi che erano stati disattivati per errore, attribuendo il blocco all'IP invece che all'header.",
+    "quarantena_dopo_fallimenti": 4,
+    "quarantena_giri": 6,
+    "_quarantena_comment": "Dopo 4 fallimenti consecutivi uno store viene saltato per i 6 giri successivi, poi ritentato. Insistere su un negozio che risponde 403 peggiora un eventuale ban e spreca tempo; un singolo avviso Telegram parte nel momento in cui entra in quarantena. Un successo azzera tutto.",
+    "allarme_fallimenti_percentuale": 50,
+    "_allarme_comment": "Se in un solo giro cade almeno il 50% dei negozi (e almeno 3), non sono i negozi: e' la rete o un blocco che riguarda noi. Parte un avviso dedicato."
+  },
+  "filters": {
+    "_comment": "Filtri globali applicati a TUTTI i target, in aggiunta a quelli specifici del singolo target.",
+    "exclude_keywords": [
+      "plexiglass",
+      "plexi",
+      "teca",
+      "custodia",
+      "custodie",
+      "box protettivo",
+      "vuoto",
+      "vuota",
+      "solo box",
+      "senza buste",
+      "sleeve",
+      "sleeves",
+      "bustine protettive",
+      "raccoglitore vuoto",
+      "portfolio vuoto",
+      "binder vuoto",
+      "album vuoto",
+      "divisori",
+      "dividers",
+      "toploader",
+      "deck box",
+      "playmate",
+      "playmat",
+      "tappetino",
+      "dado",
+      "dadi",
+      "segnalini",
+      "moneta",
+      "coin",
+      "carta singola",
+      "singola",
+      "single card",
+      "graded",
+      "psa",
+      "bgs",
+      "cgc",
+      "proxy",
+      "custom",
+      "fake",
+      "replica",
+      "non ufficiale",
+      "artigianale",
+      "opened",
+      "aperto",
+      "aperta",
+      "scartat",
+      "live opening",
+      "break",
+      "usato",
+      "second hand",
+      "seconda scelta",
+      "danneggiat",
+      "ammaccat",
+      "preordine aperto solo",
+      "gift card",
+      "buono regalo",
+      "mystery box",
+      "mysterybox",
+      "peluche",
+      "figure",
+      "statua",
+      "funko",
+      "t-shirt",
+      "felpa",
+      "zaino",
+      "astuccio",
+      "puzzle",
+      "lego",
+      "mega construx",
+      "case protettivo",
+      "pro-binder",
+      "probinder",
+      "ultra pro",
+      "gamegenic",
+      "mystery pack",
+      "mysterypack",
+      "sbustalo",
+      "pacchetto misto",
+      "lotto misto",
+      "bundle misto",
+      "topolino",
+      "dylan dog",
+      "figurine",
+      "panini",
+      "harry potter",
+      "martinelia",
+      "starter deck",
+      "one piece",
+      "yu-gi-oh",
+      "yugioh",
+      "lorcana",
+      "magic the gathering",
+      "digimon",
+      "dragon ball",
+      "plexiglas",
+      "chiusura magnetica",
+      "case in plexi",
+      "english",
+      "japanese",
+      "coreano",
+      "spagnolo",
+      "francese",
+      "tedesco",
+      "acrylic",
+      "acrilico",
+      "box protezione",
+      "protezione",
+      "protettiv",
+      "espositore",
+      "display case"
+    ],
+    "_exclude_comment": "Il match e' case-insensitive su titolo normalizzato (accenti rimossi). Una sola occorrenza basta a scartare il prodotto.",
+    "require_language": [
+      "ita",
+      "it",
+      "italiano",
+      "italian"
+    ],
+    "_require_language_comment": "Opzionale e NON bloccante di default: usato solo per i target che hanno 'language_strict': true. Molti shop non mettono la lingua nel titolo.",
+    "min_price_eur": 3.0,
+    "_min_price_comment": "Scarta i prodotti civetta a 0,01 EUR e i placeholder dei preordini non prezzati.",
+    "reject_preorder": false,
+    "_reject_preorder_comment": "true = ignora i prodotti marcati come preordine. Tenuto a false: i preordini a MSRP sono spesso l'unico modo di prenderli.",
+    "exclude_bundle_sellers": true,
+    "_exclude_bundle_comment": "Scarta i titoli che contengono piu' prodotti venduti insieme (es. 'ETB + Bundle + Tin'), che gonfiano il prezzo.",
+    "_exclude_observed": "Le voci aggiunte derivano da falsi positivi REALI osservati durante il collaudo del 2026-10-02 su edicolaonline.store (Topolino, figurine Dylan Dog), mornatipaglia.com (set trucchi Martinelia), bsastore.it (starter deck One Piece), federicstore.it (album PRO-Binder)."
+  },
+  "targets": [
+    {
+      "id": "etb_30th",
+      "name": "Set Allenatore Fuoriclasse / ETB 30° Anniversario",
+      "enabled": true,
+      "priority": 1,
+      "msrp_eur": 59.9,
+      "msrp_verified": true,
+      "_msrp_source": "Prezzo consigliato ufficiale, uscita 16/09/2026. Confermato a 59,90 EUR su cardgameclub.it (rivenditore autorizzato) e su 4 altri shop durante il collaudo del 02/10/2026.",
+      "max_price_eur": 64.9,
+      "must_contain_all": [],
+      "must_contain_any_groups": [
+        [
+          "fuoriclasse",
+          "elite trainer box",
+          "elite trainer",
+          "etb"
+        ],
+        [
+          "anniversario",
+          "anniversary",
+          "celebration"
+        ],
+        [
+          "30",
+          "30esimo",
+          "30°",
+          "trentesimo",
+          "30th"
+        ]
+      ],
+      "must_not_contain": [
+        "dominio delta",
+        "buio pesto",
+        "caos nascente",
+        "equilibrio perfetto",
+        "ascesa eroica",
+        "fiamme spettrali",
+        "mega gardevoir",
+        "mega lucario",
+        "mega rayquaza",
+        "luce nera",
+        "scarlatto",
+        "violetto",
+        "cronoforze",
+        "scintille",
+        "corona astrale",
+        "destino di paldea",
+        "rivali predestinati",
+        "evoluzioni prismatiche",
+        "pokemon go",
+        "spada e scudo",
+        "colpo fusione",
+        "futuri campioni",
+        "zacian",
+        "zamazenta",
+        "25",
+        "25th",
+        "25esimo",
+        "20th",
+        "40",
+        "40th",
+        "bundle",
+        "blister",
+        "tin",
+        "latta",
+        "poster",
+        "raccoglitore",
+        "binder",
+        "portfolio",
+        "mazzo",
+        "deck",
+        "collezione premium",
+        "ultra premium",
+        "mini tin",
+        "megaevoluzione",
+        "mega evoluzione"
+      ],
+      "_match_comment": "must_contain_all: TUTTE presenti. must_contain_any_groups: lista di gruppi, almeno una keyword per OGNI gruppo (gruppi in AND, keyword dentro il gruppo in OR). must_not_contain: una sola presenza scarta il prodotto. Tutto con match a confine di parola."
+    },
+    {
+      "id": "etb_megaevoluzione",
+      "name": "Set Allenatore Fuoriclasse / ETB Megaevoluzione (tutte le varianti)",
+      "enabled": true,
+      "priority": 2,
+      "msrp_eur": 59.9,
+      "msrp_verified": true,
+      "_msrp_source": "Confermato: federicstore.it vende Buio Pesto, Caos Nascente ed Equilibrio Perfetto a 59,90 EUR.",
+      "max_price_eur": 64.9,
+      "must_contain_all": [],
+      "must_contain_any_groups": [
+        [
+          "fuoriclasse",
+          "elite trainer box",
+          "elite trainer",
+          "etb"
+        ],
+        [
+          "megaevoluzione",
+          "mega evoluzione",
+          "dominio delta",
+          "buio pesto",
+          "caos nascente",
+          "equilibrio perfetto",
+          "ascesa eroica",
+          "fiamme spettrali",
+          "mega gardevoir",
+          "mega lucario",
+          "mega rayquaza"
+        ]
+      ],
+      "must_not_contain": [
+        "bundle",
+        "blister",
+        "tin",
+        "latta",
+        "poster",
+        "raccoglitore",
+        "binder",
+        "portfolio",
+        "mazzo",
+        "deck",
+        "collezione premium",
+        "ultra premium",
+        "mini tin",
+        "30th",
+        "30esimo",
+        "anniversario"
+      ],
+      "_match_comment": "must_contain_all: TUTTE presenti. must_contain_any_groups: lista di gruppi, almeno una keyword per OGNI gruppo (gruppi in AND, keyword dentro il gruppo in OR). must_not_contain: una sola presenza scarta il prodotto. Tutto con match a confine di parola."
+    },
+    {
+      "id": "etb_qualsiasi",
+      "name": "Set Allenatore Fuoriclasse / ETB - QUALSIASI espansione (catch-all)",
+      "enabled": true,
+      "priority": 3,
+      "msrp_eur": 59.9,
+      "msrp_verified": true,
+      "_msrp_source": "Rete di sicurezza per le espansioni future: qualsiasi ETB entro soglia MSRP viene segnalato, senza dover aggiornare la config a ogni uscita. Gli ETB occidentali stanno stabilmente a 59,90 EUR di listino.",
+      "max_price_eur": 64.9,
+      "must_contain_all": [],
+      "must_contain_any_groups": [
+        [
+          "fuoriclasse",
+          "elite trainer box",
+          "elite trainer",
+          "etb"
+        ]
+      ],
+      "must_not_contain": [
+        "bundle",
+        "blister",
+        "tin",
+        "latta",
+        "poster",
+        "raccoglitore",
+        "binder",
+        "portfolio",
+        "mazzo",
+        "deck",
+        "collezione premium",
+        "ultra premium",
+        "mini tin",
+        "seconda scelta",
+        "vintage",
+        "sigillato anni",
+        "japan",
+        "giapponese",
+        "jpn",
+        "korean",
+        "eng",
+        "inglese"
+      ],
+      "_match_comment": "must_contain_all: TUTTE presenti. must_contain_any_groups: lista di gruppi, almeno una keyword per OGNI gruppo (gruppi in AND, keyword dentro il gruppo in OR). must_not_contain: una sola presenza scarta il prodotto. Tutto con match a confine di parola."
+    }
+  ],
+  "platform_endpoints": {
+    "_comment": "Pattern usati dagli adapter. Lo scraper li compone con 'base_url' dello store. Non toccare se non sai cosa stai facendo.",
+    "shopify": {
+      "catalog": "{base_url}/products.json?limit=250&page={page}",
+      "max_pages": 6,
+      "_fields": "products[].title, products[].handle, products[].variants[].available (bool), products[].variants[].price (string EUR)",
+      "product_url": "{base_url}/products/{handle}",
+      "_note": "Endpoint pubblico non autenticato, restituisce l'intero catalogo paginato. 'available' e' il dato autoritativo di stock. Si ferma quando una pagina torna lista vuota.",
+      "catalog_collection": "{base_url}/collections/{handle}/products.json?limit=250&page={page}",
+      "_collections_note": "Se uno store dichiara 'collections', l'adapter interroga solo quelle invece dell'intero catalogo. Indispensabile per i cataloghi enormi: su giuntialpunto.it le prime 750 voci del catalogo non contengono nemmeno un prodotto Pokemon, mentre /collections/pokemon ne restituisce 101 con una sola richiesta."
+    },
+    "shopify_search": {
+      "search": "{base_url}/search/suggest.json?q={query}&resources[type]=product&resources[limit]=10",
+      "_note": "Alternativa piu' leggera per cataloghi enormi, ma 'available' NON e' sempre presente: usare solo come fallback."
+    },
+    "woocommerce_store_api": {
+      "search": "{base_url}/wp-json/wc/store/v1/products?search={query}&per_page=100",
+      "_fields": "[].name, [].permalink, [].is_in_stock (bool), [].prices.price (stringa in CENTESIMI), [].prices.currency_minor_unit",
+      "_note": "API pubblica del blocco Store di WooCommerce, non richiede chiavi. ATTENZIONE: prices.price e' in centesimi, va diviso per 10^currency_minor_unit."
+    },
+    "html_schema_org": {
+      "_note": "Parsing dei blocchi JSON-LD / microdata: cerca 'https://schema.org/InStock' | 'OutOfStock' | 'PreOrder' e il campo 'price'. Fallback su testo: presenza di 'aggiungi al carrello' e assenza di 'non disponibile'/'esaurito'/'out of stock'."
+    },
+    "html_sitemap": {
+      "_note": "Scarica sitemap.xml, filtra le URL per keyword, poi visita solo le pagine prodotto candidate. Usato per i siti senza endpoint di ricerca utilizzabile."
+    },
+    "vtex": {
+      "search": "{base_url}/api/catalog_system/pub/products/search?ft={query}&_from=0&_to=49",
+      "_fields": "[].items[].sellers[].commertialOffer.AvailableQuantity, .Price",
+      "_note": "API pubblica VTEX, non autenticata."
+    }
+  },
+  "stores": [
+    {
+      "_section": "===== TIER 1 - SHOPIFY (26 store) - endpoint /products.json?limit=250 - tutti verificati live ====="
+    },
+    {
+      "id": "cardpassion",
+      "name": "Card Passion",
+      "base_url": "https://cardpassion.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "location": "Torino",
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 208,
+        "available": 136,
+        "anniversary_products": 202
+      },
+      "notes": "Il catalogo 30° Anniversario piu' ampio trovato in Italia. Prezzi dichiarati a listino."
+    },
+    {
+      "id": "nickeilashop",
+      "name": "Nick e Ila Shop",
+      "base_url": "https://nickeilashop.com",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 210,
+        "available": 101,
+        "anniversary_products": 19
+      },
+      "notes": "Applica limite 'MAX 1 per persona' sui prodotti caldi: ottimo segnale anti-scalper."
+    },
+    {
+      "id": "pokenmore",
+      "name": "PokéNmore Cards Store",
+      "base_url": "https://pokenmore.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "location": "Ospitaletto (BS)",
+      "kind": "micro_shop",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 116,
+        "available": 67,
+        "anniversary_products": 17
+      },
+      "notes": "Micro-shop di provincia, poco monitorato."
+    },
+    {
+      "id": "cardverse",
+      "name": "Cardverse",
+      "base_url": "https://cardverse.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 114,
+        "available": 89,
+        "anniversary_products": 0
+      },
+      "notes": "Fa anche distribuzione a fumetterie: stock spesso profondo."
+    },
+    {
+      "id": "tkcollectibles",
+      "name": "TKCollectibles",
+      "base_url": "https://www.tkcollectibles.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 112,
+        "available": 57,
+        "anniversary_products": 0
+      }
+    },
+    {
+      "id": "baruzcard",
+      "name": "BaruzCard",
+      "base_url": "https://baruzcard.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 112,
+        "available": 35,
+        "anniversary_products": 15
+      }
+    },
+    {
+      "id": "cardgameclub",
+      "name": "Card Game Club",
+      "base_url": "https://cardgameclub.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": true,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 106,
+        "available": 10,
+        "anniversary_products": 8
+      },
+      "notes": "RIVENDITORE UFFICIALE AUTORIZZATO (elencato su tcg.pokemon.com). Prezzi a MSRP esatto: ETB 30° a 59,90 EUR. Il dominio cardgame-club.it e' lo stesso shop, non aggiungerlo due volte."
+    },
+    {
+      "id": "collectorstorecards",
+      "name": "Collector Store Cards",
+      "base_url": "https://collectorstorecards.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "location": "Muggò (MB)",
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 104,
+        "available": 44,
+        "anniversary_products": 43
+      }
+    },
+    {
+      "id": "otakura",
+      "name": "Otakura",
+      "base_url": "https://otakura.com",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "location": "Villanova d'Asti (AT)",
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 85,
+        "available": 31,
+        "anniversary_products": 4
+      }
+    },
+    {
+      "id": "manuelpoke3",
+      "name": "ManuelPoke3",
+      "base_url": "https://manuelpoke3.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "location": "Reggiolo (RE)",
+      "kind": "micro_shop",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 63,
+        "available": 30,
+        "anniversary_products": 20
+      }
+    },
+    {
+      "id": "bsastore",
+      "name": "BSA Store",
+      "base_url": "https://www.bsastore.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "location": "Cantù (CO)",
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 61,
+        "available": 34,
+        "anniversary_products": 22
+      }
+    },
+    {
+      "id": "pullhouse",
+      "name": "Pull House",
+      "base_url": "https://www.pullhouse.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 54,
+        "available": 10,
+        "anniversary_products": 13
+      },
+      "notes": "Non compare in nessuna guida: poco monitorato."
+    },
+    {
+      "id": "breakyourcards",
+      "name": "Break Your Cards",
+      "base_url": "https://www.breakyourcards.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 44,
+        "available": 39,
+        "anniversary_products": 0
+      }
+    },
+    {
+      "id": "edicolaonline",
+      "name": "Edicola Online",
+      "base_url": "https://edicolaonline.store",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "non_tcg_retailer",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 43,
+        "available": 31,
+        "anniversary_products": 14
+      },
+      "notes": "EDICOLA online. Canale distributivo separato da quello dei card shop: lo stock arriva e resta disponibile piu' a lungo."
+    },
+    {
+      "id": "thepokehunter",
+      "name": "ThePokèHunter",
+      "base_url": "https://thepokehunter.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "location": "Legnano (MI)",
+      "kind": "micro_shop",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 43,
+        "available": 33,
+        "anniversary_products": 9
+      }
+    },
+    {
+      "id": "roccogiocattoli",
+      "name": "Rocco Giocattoli",
+      "base_url": "https://shop.roccogiocattoli.eu",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "distributor",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 33,
+        "available": 15,
+        "anniversary_products": 6
+      },
+      "notes": "DISTRIBUTORE storico di giocattoli che vende anche al pubblico. Prezzi vicini al listino."
+    },
+    {
+      "id": "realwin",
+      "name": "RealWin",
+      "base_url": "https://www.realwin.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "micro_shop",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 32,
+        "available": 11,
+        "anniversary_products": 10,
+        "catalog_total": 51
+      },
+      "notes": "Catalogo di 51 prodotti in tutto: praticamente invisibile ai bot."
+    },
+    {
+      "id": "raremoncardstore",
+      "name": "RareMon Card Store",
+      "base_url": "https://raremoncardstore.com",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "micro_shop",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 27,
+        "available": 8,
+        "anniversary_products": 2,
+        "catalog_total": 77
+      }
+    },
+    {
+      "id": "timetwistergames",
+      "name": "Time Twister Games",
+      "base_url": "https://timetwistergames.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 26,
+        "available": 26,
+        "anniversary_products": 1
+      }
+    },
+    {
+      "id": "sgorbati",
+      "name": "Sgorbati",
+      "base_url": "https://sgorbati.biz",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "non_tcg_retailer",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 25,
+        "available": 22,
+        "anniversary_products": 7
+      },
+      "notes": "CARTOLERIA / LIBRERIA. Nessun collezionista la monitora."
+    },
+    {
+      "id": "rafsneakers",
+      "name": "Raf Sneakers",
+      "base_url": "https://rafsneakers.com",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "non_tcg_retailer",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 14,
+        "available": 10,
+        "anniversary_products": 4
+      },
+      "notes": "SNEAKER SHOP con reparto Pokemon. Categoria totalmente fuori radar."
+    },
+    {
+      "id": "bangydreams",
+      "name": "Bangy Dreams",
+      "base_url": "https://bangydreams.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "micro_shop",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 12,
+        "available": 9,
+        "anniversary_products": 0
+      }
+    },
+    {
+      "id": "mornatipaglia",
+      "name": "Mornati Paglia",
+      "base_url": "https://www.mornatipaglia.com",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "non_tcg_retailer",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 11,
+        "available": 4,
+        "anniversary_products": 4
+      },
+      "notes": "CARTOLERIA generalista con reparto Pokemon."
+    },
+    {
+      "id": "showgame",
+      "name": "ShowGame",
+      "base_url": "https://www.showgame.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 11,
+        "available": 3,
+        "anniversary_products": 9
+      }
+    },
+    {
+      "id": "gsgameon",
+      "name": "GS GameOn",
+      "base_url": "https://www.gs-gameon.com",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 10,
+        "available": 10,
+        "anniversary_products": 6
+      },
+      "notes": "Ha una collection dedicata ai pre-ordini."
+    },
+    {
+      "id": "tomodachigame",
+      "name": "Tomodachi Game Italia",
+      "base_url": "https://tomodachigameitalia.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 4,
+      "official_retailer": false,
+      "kind": "import_jp",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 7,
+        "available": 2,
+        "anniversary_products": 0
+      },
+      "notes": "Import giapponese: poco rilevante per i prodotti ITA, tenuto per completezza."
+    },
+    {
+      "_section": "===== TIER 2 - WOOCOMMERCE STORE API (15 store) - /wp-json/wc/store/v1/products?search= - tutti verificati live ====="
+    },
+    {
+      "id": "federicstore",
+      "name": "FedericStore",
+      "base_url": "https://federicstore.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario",
+        "bundle",
+        "tin",
+        "collezione"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 100,
+        "available": 73
+      },
+      "notes": "Shop interamente dedicato a Pokemon, prezzi dichiarati allineati al listino ufficiale."
+    },
+    {
+      "id": "tonytoys",
+      "name": "Tony Toys",
+      "base_url": "https://tonytoys.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "toy_store",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 100,
+        "available": 100
+      },
+      "notes": "NEGOZIO DI GIOCATTOLI con reparto carte."
+    },
+    {
+      "id": "manuelkant",
+      "name": "Manuel Kant",
+      "base_url": "https://www.manuelkant.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 100,
+        "available": 100
+      },
+      "notes": "Catalogo ampio, shop poco noto."
+    },
+    {
+      "id": "toysgiocattoli",
+      "name": "Toys Giocattoli",
+      "base_url": "https://www.toysgiocattoli.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "location": "Mirandola (MO)",
+      "kind": "toy_store",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 100,
+        "available": 66
+      },
+      "notes": "NEGOZIO DI GIOCATTOLI di provincia. Vende l'ETB 30° a 60,00 EUR, cioe' a MSRP. Target ideale."
+    },
+    {
+      "id": "progct",
+      "name": "ProgCT",
+      "base_url": "https://www.progct.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "non_tcg_retailer",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 100,
+        "available": 52
+      },
+      "notes": "NEGOZIO DI INFORMATICA/ELETTRONICA con reparto carte. Fuori radar."
+    },
+    {
+      "id": "tcgmania",
+      "name": "TCG Mania",
+      "base_url": "https://www.tcgmania.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 92,
+        "available": 30
+      }
+    },
+    {
+      "id": "pikapika",
+      "name": "PikaPika",
+      "base_url": "https://www.pikapika.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 80,
+        "available": 63
+      }
+    },
+    {
+      "id": "nerdstoreitalia",
+      "name": "NerdStore Italia",
+      "base_url": "https://www.nerdstoreitalia.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 78,
+        "available": 58
+      },
+      "notes": "ATTENZIONE: spesso sopra MSRP (ETB 30° visto a 119,90). Il filtro prezzo lo scartera' quasi sempre: e' corretto cosi'."
+    },
+    {
+      "id": "orocardstore",
+      "name": "OroCardStore",
+      "base_url": "https://www.orocardstore.com",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 69,
+        "available": 31
+      },
+      "notes": "Offre anche ritiro in negozio."
+    },
+    {
+      "id": "levantecomputer",
+      "name": "Levante Computer",
+      "base_url": "https://levantecomputer.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "non_tcg_retailer",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse"
+      ],
+      "timeout_seconds": 40,
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 50,
+        "available": 29
+      },
+      "notes": "NEGOZIO DI COMPUTER che vende Pokemon. Server lento: timeout alzato a 40s."
+    },
+    {
+      "id": "magicstoreshop",
+      "name": "Magic Store Shop",
+      "base_url": "https://www.magicstoreshop.com",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 41,
+        "available": 22
+      }
+    },
+    {
+      "id": "packmonstore",
+      "name": "PackMon Store",
+      "base_url": "https://www.packmonstore.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 24,
+        "available": 8
+      },
+      "notes": "Il WAF rifiuta lo User-Agent di Chrome sulle chiamate all'API REST. Dal 2026-10-02 l'UA predefinito e' Firefox, quindi non serve piu' un override dedicato."
+    },
+    {
+      "id": "pokecollection",
+      "name": "Poke Collection",
+      "base_url": "https://pokecollection.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse",
+        "anniversario"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 20,
+        "available": 19
+      }
+    },
+    {
+      "id": "dechome",
+      "name": "DecHome",
+      "base_url": "https://www.dechome.it",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "non_tcg_retailer",
+      "search_terms": [
+        "pokemon"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 12,
+        "available": 7
+      },
+      "notes": "CASALINGHI / ARREDO con una categoria 'Carte Pokemon TCG'. Nessuno lo monitora."
+    },
+    {
+      "id": "mycomics",
+      "name": "MyComics",
+      "base_url": "https://mycomics.it",
+      "type": "woocommerce_store_api",
+      "enabled": false,
+      "priority": 4,
+      "official_retailer": false,
+      "kind": "comic_store",
+      "search_terms": [
+        "pokemon"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 3,
+        "available": 0
+      },
+      "notes": "Catalogo Pokemon minimo, tenuto per completezza.",
+      "disabled_reason": "Risposte API incomplete (campi mancanti) e solo 3 prodotti Pokemon, 0 disponibili. Non vale il costo di una richiesta."
+    },
+    {
+      "_section": "===== TIER 3 - HTML / ALTRE PIATTAFORME (11 store) - richiedono un parser dedicato ====="
+    },
+    {
+      "id": "mediaworld",
+      "name": "MediaWorld",
+      "base_url": "https://www.mediaworld.it",
+      "type": "html_schema_org",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": true,
+      "kind": "big_retailer",
+      "verified_at": "2026-10-02",
+      "entry_points": [
+        "https://www.mediaworld.it/it/brand/pokemon/carte-da-gioco",
+        "https://www.mediaworld.it/it/category/carte-da-gioco-800603.html"
+      ],
+      "availability_markers": {
+        "in_stock": [
+          "https://schema.org/InStock"
+        ],
+        "out_of_stock": [
+          "https://schema.org/OutOfStock",
+          "Non disponibile"
+        ]
+      },
+      "verified_evidence": "Pagina prodotto scaricata con curl semplice: contiene '\"availability\":\"https://schema.org/OutOfStock\"'. Nessun blocco bot riscontrato.",
+      "notes": "RIVENDITORE UFFICIALE. Le pagine prodotto rispondono; l'endpoint di ricerca NON e' stato verificato, quindi partire dalle category page e seguire i link prodotto."
+    },
+    {
+      "id": "toyscenter",
+      "name": "Toys Center",
+      "base_url": "https://www.toyscenter.it",
+      "type": "html_schema_org",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": true,
+      "kind": "big_retailer",
+      "verified_at": "2026-10-02",
+      "product_url_pattern": "https://www.toyscenter.it/prodotto/{slug}/",
+      "availability_markers": {
+        "in_stock": [
+          "https://schema.org/InStock"
+        ],
+        "out_of_stock": [
+          "https://schema.org/OutOfStock",
+          "Non disponibile"
+        ]
+      },
+      "verified_evidence": "Pagina prodotto 'pokemon-megaevoluzione-fiamme-spettrali-set-allenatore-fuoriclasse' -> HTTP 200 con 'schema.org/OutOfStock'.",
+      "notes": "RIVENDITORE UFFICIALE. La ricerca interna e' JS-driven e torna 404 a curl: usare una lista di slug prodotto noti, oppure la sitemap."
+    },
+    {
+      "id": "giodicart",
+      "name": "Giodicart",
+      "base_url": "https://giodicart.it",
+      "type": "html_schema_org",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "big_retailer",
+      "verified_at": "2026-10-02",
+      "search_url_verified": true,
+      "availability_markers": {
+        "in_stock": [
+          "InStock",
+          "Disponibile"
+        ],
+        "out_of_stock": [
+          "OutOfStock",
+          "Non disponibile"
+        ]
+      },
+      "verified_evidence": "HTTP 200, markup contiene InStock/OutOfStock. Il parametro &stock=y filtra gia' lato server i soli disponibili.",
+      "notes": "La RICERCA del sito restituisce solo merchandise (peluche, lenzuola, Monopoly): nessuna carta. Le carte stanno nella categoria dedicata /c/1060/.../carte-collezionabili, usata qui come entry point. Verificato il 2026-10-02 ispezionando i titoli estratti.",
+      "max_product_pages": 30,
+      "entry_points": [
+        "https://giodicart.it/c/1060/giocattoli/kidult/carte-collezionabili"
+      ]
+    },
+    {
+      "id": "toysin",
+      "name": "Toysin",
+      "base_url": "https://www.toysin.it",
+      "type": "html_sitemap",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "toy_store",
+      "verified_at": "2026-10-02",
+      "platform": "ReadyPro",
+      "encoding": "iso-8859-1",
+      "sitemap_url": "https://www.toysin.it/sitemap.xml",
+      "sitemap_url_filter": [
+        "pokemon"
+      ],
+      "availability_markers": {
+        "field_label": "Disponibilità:",
+        "out_of_stock": [
+          "non disponibile",
+          "esaurito"
+        ]
+      },
+      "verified_evidence": "sitemap.xml = 24.382 URL, di cui 215 contengono 'pokemon'. Pagina prodotto HTTP 200 con campo 'Disponibilita':.",
+      "notes": "ATTENZIONE: charset ISO-8859-1, va decodificato esplicitamente o i caratteri accentati si rompono. Nessun endpoint di ricerca utilizzabile: si passa per la sitemap."
+    },
+    {
+      "id": "pianetahobby",
+      "name": "Pianeta Hobby",
+      "base_url": "https://www.pianetahobby.it",
+      "type": "html_generic",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": true,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "entry_points": [
+        "https://www.pianetahobby.it/pokemon/",
+        "https://www.pianetahobby.it/pokemon/buste/"
+      ],
+      "availability_markers": {
+        "in_stock": [
+          "disponibile"
+        ],
+        "out_of_stock": [
+          "non disponibile",
+          "esaurito"
+        ]
+      },
+      "verified_evidence": "HTTP 200, markup contiene 'disponibile'. Nessun JSON-LD rilevato: serve parsing testuale con BeautifulSoup.",
+      "notes": "RIVENDITORE UFFICIALE (elencato su tcg.pokemon.com)."
+    },
+    {
+      "id": "magicstore",
+      "name": "Magic Store",
+      "base_url": "https://www.magicstore.it",
+      "type": "html_generic",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "entry_points": [
+        "https://www.magicstore.it/_/pokemon/"
+      ],
+      "availability_markers": {
+        "in_stock": [
+          "disponibile"
+        ],
+        "out_of_stock": [
+          "non disponibile"
+        ]
+      },
+      "verified_evidence": "HTTP 200, markup contiene sia 'disponibile' sia 'Non disponibile'. Attenzione: 'Non disponibile' contiene 'disponibile' come sottostringa, l'ordine dei controlli conta."
+    },
+    {
+      "id": "cardgamecorner",
+      "name": "Card Game Corner",
+      "base_url": "https://www.cardgamecorner.com",
+      "type": "html_generic",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "availability_markers": {
+        "in_stock": [
+          "disponibile"
+        ],
+        "out_of_stock": [
+          "non disponibile",
+          "esaurito"
+        ]
+      },
+      "verified_evidence": "Pagina prodotto HTTP 200 con 'disponibile'.",
+      "notes": "Spesso molto sopra MSRP (bundle 6 buste visto a 69,90 contro 36,99): il filtro prezzo lo scartera' quasi sempre."
+    },
+    {
+      "id": "vendiloshop",
+      "name": "Vendilo Shop",
+      "base_url": "https://www.vendiloshop.it",
+      "type": "html_prestashop",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "big_retailer",
+      "verified_at": "2026-10-02",
+      "platform": "PrestaShop",
+      "availability_markers": {
+        "in_stock": [
+          "InStock"
+        ],
+        "out_of_stock": [
+          "OutOfStock"
+        ]
+      },
+      "notes": "PrestaShop: l'API /api e' chiusa senza chiave, si parsa l'HTML. Ha restituito 403 sulle sonde JSON ma 200 sulla home: usare headers browser completi."
+    },
+    {
+      "id": "dungeondice",
+      "name": "DungeonDice",
+      "base_url": "https://www.dungeondice.it",
+      "type": "html_prestashop",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "boardgame_store",
+      "verified_at": "2026-10-02",
+      "platform": "PrestaShop",
+      "availability_markers": {
+        "in_stock": [
+          "InStock"
+        ],
+        "out_of_stock": [
+          "OutOfStock"
+        ]
+      }
+    },
+    {
+      "id": "estayon",
+      "name": "E-Stayon",
+      "base_url": "https://www.e-stayon.com",
+      "type": "vtex",
+      "enabled": false,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "big_retailer",
+      "verified_at": "2026-10-02",
+      "platform": "VTEX",
+      "search_url": "https://www.e-stayon.com/api/catalog_system/pub/products/search?ft={query}&_from=0&_to=49",
+      "search_url_verified": false,
+      "notes": "Piattaforma VTEX confermata dal meta generator. L'endpoint catalog_system e' lo standard VTEX ma NON e' stato testato su questo dominio: verificarlo prima di metterlo in produzione.",
+      "disabled_reason": "L'endpoint VTEX /api/catalog_system/pub/products/search non risponde su questo dominio (fallito nel run del 02/10/2026). La piattaforma e' VTEX ma l'API pubblica e' chiusa o ha un percorso diverso. Riattivare solo dopo aver trovato l'endpoint corretto."
+    },
+    {
+      "id": "dadiemattoncini",
+      "name": "Dadi e Mattoncini",
+      "base_url": "https://www.dadiemattoncini.it",
+      "type": "html_generic",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "boardgame_store",
+      "verified_at": "2026-10-02",
+      "platform": "Magento",
+      "entry_points": [
+        "https://www.dadiemattoncini.it/brand/pokemon-company.html",
+        "https://www.dadiemattoncini.it/giochi-di-carte-collezionabili/carte-pokemon/set-allenatore-fuoriclasse.html"
+      ],
+      "availability_markers": {
+        "in_stock": [
+          "disponibile",
+          "aggiungi al carrello"
+        ],
+        "out_of_stock": [
+          "non disponibile",
+          "esaurito"
+        ]
+      },
+      "verified_evidence": "HTTP 200 sulla category page. Marker schema.org non rilevati nel primo blocco: serve ispezione del DOM per i selettori precisi.",
+      "notes": "Da rifinire: i selettori non sono ancora confermati."
+    },
+    {
+      "_section": "===== TIER 4 - DISABILITATI: bloccano gli IP datacenter (403/503/timeout). NON funzioneranno da GitHub Actions senza proxy residenziale italiano o runner self-hosted. ====="
+    },
+    {
+      "id": "cartemagic",
+      "name": "CarteMagic",
+      "base_url": "https://www.cartemagic.com",
+      "type": "woocommerce_store_api",
+      "enabled": false,
+      "disabled_reason": "HTTP 403 da IP datacenter (sia /products.json sia /wp-json). Shop grande e rilevante: vale la pena riattivarlo se passi a un proxy residenziale.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "tcgstore",
+      "name": "TCG-Store",
+      "base_url": "https://tcg-store.it",
+      "type": "woocommerce_store_api",
+      "enabled": false,
+      "disabled_reason": "HTTP 403 da IP datacenter.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "gamelife",
+      "name": "Gamelife",
+      "base_url": "https://www.gamelife.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "HTTP 403 da IP datacenter. Catena fisica + e-commerce, molto rilevante: ha l'ETB 30° a 59,99.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "ilcovodelnerd",
+      "name": "Il Covo del Nerd",
+      "base_url": "https://www.ilcovodelnerd.com",
+      "type": "woocommerce_store_api",
+      "enabled": false,
+      "disabled_reason": "HTTP 403 da IP datacenter. 10 punti vendita fisici, catalogo Pokemon ampio.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "lppcollecting",
+      "name": "LPP Collecting",
+      "base_url": "https://lppcollecting.it",
+      "type": "html_generic",
+      "enabled": false,
+      "official_retailer": true,
+      "verified_at": "2026-10-02",
+      "disabled_reason_precedente": "HTTP 403 da IP datacenter. RIVENDITORE UFFICIALE: riattivare se possibile.",
+      "notes": "Era disattivato per 403: il blocco dipendeva dallo User-Agent di Chrome, non dall'IP. Con Firefox risponde 200.",
+      "priority": 3,
+      "disabled_reason": "Raggiungibile dal 2026-10-02 (il 403 era dovuto all'UA di Chrome), ma la homepage non espone alcun link a categorie Pokemon e l'adapter estrae 0 prodotti. Serve individuare un entry point valido prima di riattivarlo: finche' resta cosi' costerebbe una richiesta a ogni giro per nulla."
+    },
+    {
+      "id": "capitanstock",
+      "name": "Capitanstock",
+      "base_url": "https://capitanstock.it",
+      "type": "html_prestashop",
+      "enabled": false,
+      "disabled_reason": "HTTP 503 da IP datacenter.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "carrettodicarta",
+      "name": "Carretto di Carta",
+      "base_url": "https://carrettodicarta.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "HTTP 403 da IP datacenter. Fumetteria di Milano.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "kaboomcomics",
+      "name": "Kaboom Comics",
+      "base_url": "https://kaboomcomics.it",
+      "type": "html_generic",
+      "enabled": false,
+      "verified_at": "2026-10-02",
+      "disabled_reason_precedente": "HTTP 403 da IP datacenter.",
+      "notes": "Era disattivato per 403: il blocco dipendeva dallo User-Agent di Chrome, non dall'IP. Con Firefox risponde 200.",
+      "priority": 3,
+      "disabled_reason": "Raggiungibile dal 2026-10-02 (il 403 era dovuto all'UA di Chrome), ma la homepage non espone alcun link a categorie Pokemon e l'adapter estrae 0 prodotti. Serve individuare un entry point valido prima di riattivarlo: finche' resta cosi' costerebbe una richiesta a ogni giro per nulla."
+    },
+    {
+      "id": "rossettimarket",
+      "name": "Rossetti Market",
+      "base_url": "https://www.rossettimarket.it",
+      "type": "html_generic",
+      "enabled": true,
+      "verified_at": "2026-10-02",
+      "disabled_reason_precedente": "HTTP 403 da IP datacenter.",
+      "notes": "Riattivato il 2026-10-02: il 403 dipendeva dall'UA di Chrome. Categorie Pokemon dedicate trovate dalla homepage.",
+      "priority": 3,
+      "entry_points": [
+        "https://www.rossettimarket.it/c/giocattoli-pokemon",
+        "https://www.rossettimarket.it/c/giocattoli-pokemon-box",
+        "https://www.rossettimarket.it/c/giocattoli-pokemon-bustine"
+      ],
+      "max_product_pages": 25
+    },
+    {
+      "id": "strategia2",
+      "name": "Strategia e Tattica",
+      "base_url": "https://www.strategia2.it",
+      "type": "html_generic",
+      "enabled": true,
+      "verified_at": "2026-10-02",
+      "disabled_reason_precedente": "HTTP 403 da IP datacenter.",
+      "notes": "Riattivato il 2026-10-02: il 403 dipendeva dall'UA di Chrome. Non ha una categoria Pokemon dedicata, si passa da quella generale dei giochi di carte collezionabili.",
+      "priority": 3,
+      "entry_points": [
+        "https://www.strategia2.it/categoria/giochi-di-carte-collezionabili/"
+      ],
+      "max_product_pages": 25
+    },
+    {
+      "id": "magicmerchant",
+      "name": "Magic Merchant",
+      "base_url": "https://magicmerchant.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "HTTP 403 da IP datacenter.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "tcgitalia",
+      "name": "TCG Italia",
+      "base_url": "https://tcgitalia.eu",
+      "type": "html_generic",
+      "enabled": true,
+      "verified_at": "2026-10-02",
+      "disabled_reason_precedente": "HTTP 403 da IP datacenter.",
+      "notes": "Era disattivato per 403: il blocco dipendeva dallo User-Agent di Chrome, non dall'IP. Con Firefox risponde 200. Estrae pochi prodotti dalla homepage: andrebbe individuata una categoria Pokemon dedicata per renderlo davvero utile.",
+      "priority": 3
+    },
+    {
+      "id": "mangaloco",
+      "name": "MangaLoco",
+      "base_url": "https://mangaloco.com",
+      "type": "woocommerce_store_api",
+      "enabled": false,
+      "disabled_reason": "HTTP 403 sull'API (ritorna una pagina di challenge). Gestisce liste d'attesa sui preordini 30° Anniversario.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "gamestop",
+      "name": "GameStop Italia",
+      "base_url": "https://www.gamestop.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "HTTP 403 da IP datacenter (bot protection aggressiva).",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "gamesacademy",
+      "name": "Games Academy",
+      "base_url": "https://www.games-academy.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Connessione fallita / timeout da IP datacenter. RIVENDITORE UFFICIALE.",
+      "official_retailer": true,
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "pokecardsstore",
+      "name": "PokeCardsStore",
+      "base_url": "https://pokecardsstore.it",
+      "type": "shopify",
+      "enabled": false,
+      "disabled_reason": "Connessione fallita / timeout da IP datacenter.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "pokevertu",
+      "name": "PokéVertu",
+      "base_url": "https://pokevertu.com",
+      "type": "shopify",
+      "enabled": false,
+      "disabled_reason": "ConnectError da IP datacenter. Sembra Shopify: ritestare da un IP residenziale, se risponde promuovilo a Tier 1.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "magicbazar",
+      "name": "Magic Bazar",
+      "base_url": "https://magicbazar.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Connessione fallita da IP datacenter.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "_section": "===== TIER 5 - NON IMPLEMENTATI: richiedono lavoro dedicato o non sono monitorabili in modo utile ====="
+    },
+    {
+      "id": "amazon_it",
+      "name": "Amazon.it",
+      "base_url": "https://www.amazon.it",
+      "type": "unsupported",
+      "enabled": false,
+      "disabled_reason": "I prodotti Pokemon caldi sono venduti 'su invito' (Richiedi invito), quindi la disponibilita' non e' osservabile dallo stato della pagina. In piu' Amazon blocca attivamente lo scraping. Usare le Product Advertising API o una lista desideri, non uno scraper.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "unieuro",
+      "name": "Unieuro",
+      "base_url": "https://www.unieuro.it",
+      "type": "html_schema_org",
+      "enabled": false,
+      "disabled_reason": "Home raggiungibile (200) ma selettori e endpoint di ricerca non ancora mappati.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "euronics",
+      "name": "Euronics",
+      "base_url": "https://www.euronics.it",
+      "type": "html_schema_org",
+      "enabled": false,
+      "disabled_reason": "Home raggiungibile (200) ma selettori non mappati. Nota: Euronics e' una rete di soci con cataloghi regionali diversi.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "comet",
+      "name": "Comet",
+      "base_url": "https://www.comet.it",
+      "type": "html_schema_org",
+      "enabled": false,
+      "disabled_reason": "Home raggiungibile (200) ma selettori non mappati.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "lafeltrinelli",
+      "name": "laFeltrinelli",
+      "base_url": "https://www.lafeltrinelli.it",
+      "type": "html_schema_org",
+      "enabled": false,
+      "disabled_reason": "Home raggiungibile (200) ma selettori non mappati. Ha una sezione giochi/Pokemon.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "mondadoristore",
+      "name": "Mondadori Store",
+      "base_url": "https://www.mondadoristore.it",
+      "type": "html_schema_org",
+      "enabled": false,
+      "disabled_reason": "Home raggiungibile (200) ma selettori non mappati. RIVENDITORE UFFICIALE.",
+      "official_retailer": true,
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "ibs",
+      "name": "IBS",
+      "base_url": "https://www.ibs.it",
+      "type": "html_schema_org",
+      "enabled": false,
+      "disabled_reason": "Selettori non mappati.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "toysuperstore",
+      "name": "ToySuperStore (Giocheria)",
+      "base_url": "https://www.toysuperstore.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Risposta intermittente dalle sonde (una 200, una 000). Da ritestare.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "uplay",
+      "name": "Uplay",
+      "base_url": "https://www.uplay.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Raggiungibile ma piattaforma non identificata e catalogo Pokemon non verificato.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "dicenroll",
+      "name": "Dice'n'Roll",
+      "base_url": "https://www.dicenroll.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Raggiungibile ma catalogo Pokemon non verificato.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "juguetilandia",
+      "name": "Juguetilandia Italia",
+      "base_url": "https://www.juguetilandia.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Catalogo Pokemon non verificato.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "gemcardinfinity",
+      "name": "Gem Card Infinity Collection",
+      "base_url": "https://www.gemcardinfinitycollection.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Nessun endpoint JSON trovato; selettori non mappati.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "fantasiastore",
+      "name": "Fantasia Store",
+      "base_url": "https://www.fantasiastore.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Nessun endpoint JSON trovato; selettori non mappati. RIVENDITORE UFFICIALE.",
+      "official_retailer": true,
+      "verified_at": "2026-10-02"
+    },
+    {
+      "_section": "===== AGGIUNTI il 2026-10-02 (seconda ricerca) ====="
+    },
+    {
+      "id": "games4fans",
+      "name": "Games4Fans",
+      "base_url": "https://www.games4fans.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "location": "Modena",
+      "kind": "tcg_specialist",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 41,
+        "available": 2,
+        "etb_trovati": 4
+      },
+      "notes": "Negozio di Modena. Verificato: 41 prodotti Pokemon, 4 ETB di cui 2 disponibili."
+    },
+    {
+      "id": "fulltoys",
+      "name": "Full Toys",
+      "base_url": "https://fulltoys.shop",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 2,
+      "official_retailer": false,
+      "kind": "toy_store",
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 31,
+        "available": 0,
+        "etb_trovati": 2
+      },
+      "notes": "NEGOZIO DI GIOCATTOLI. Verificato: 31 prodotti Pokemon e 2 ETB nel catalogo completo. La collection 'pokemon-carte-collezionabili' ne contiene solo 8, quindi conviene scorrere tutto il catalogo (750 voci, 3 pagine)."
+    },
+    {
+      "id": "giuntialpunto",
+      "name": "Giunti al Punto",
+      "base_url": "https://giuntialpunto.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 1,
+      "official_retailer": false,
+      "kind": "non_tcg_retailer",
+      "collections": [
+        "pokemon"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 101,
+        "available": null,
+        "etb_trovati": 0
+      },
+      "notes": "CATENA DI LIBRERIE (oltre 270 punti vendita), su Shopify. 101 prodotti Pokemon nella collection, ma ZERO ETB al 02/10/2026: tiene peluche, figure e libri. Incluso perche' con la collection costa una sola richiesta e una catena di questa dimensione puo' ricevere ETB in qualsiasi momento."
+    },
+    {
+      "id": "thetoysstore",
+      "name": "The Toys Store",
+      "base_url": "https://www.thetoysstore.it",
+      "type": "shopify",
+      "enabled": true,
+      "priority": 3,
+      "official_retailer": false,
+      "kind": "toy_store",
+      "collections": [
+        "pokemon-giocattoli-e-giochi"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "pokemon_products": 63,
+        "available": null,
+        "etb_trovati": 0
+      },
+      "notes": "Negozio di giocattoli. 63 prodotti Pokemon nella collection, ZERO ETB al 02/10/2026. Stesso ragionamento di Giunti al Punto: costo di una richiesta."
+    },
+    {
+      "id": "cantinadellosbusto",
+      "name": "La Cantina dello Sbusto",
+      "base_url": "https://lacantinadellosbusto.com",
+      "type": "woocommerce_store_api",
+      "enabled": true,
+      "priority": 4,
+      "official_retailer": false,
+      "kind": "tcg_specialist",
+      "search_terms": [
+        "pokemon",
+        "fuoriclasse"
+      ],
+      "verified_at": "2026-10-02",
+      "stats": {
+        "etb_trovati": 1
+      },
+      "notes": "Shop legato alle aperture in diretta. Verificato un ETB a 120 EUR: pratica prezzi ben sopra l'MSRP, quindi il filtro prezzo lo scartera' quasi sempre. Tenuto perche' gli sbustatori a volte rivendono sigillato a listino."
+    },
+    {
+      "id": "agapopvault",
+      "name": "AGAPOP Vault",
+      "base_url": "https://agapopvault.com",
+      "type": "woocommerce_store_api",
+      "enabled": false,
+      "disabled_reason": "L'endpoint /wp-json/wc/store/v1 risponde 200 ma con HTML invece di JSON: l'API Store non e' attiva. Servirebbe un adapter HTML dedicato.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "imperogranmaestro",
+      "name": "Impero Gran Maestro",
+      "base_url": "https://imperogranmaestro.com",
+      "type": "html_generic",
+      "enabled": true,
+      "verified_at": "2026-10-02",
+      "disabled_reason_precedente": "HTTP 403 da IP datacenter.",
+      "notes": "Era disattivato per 403: il blocco dipendeva dallo User-Agent di Chrome, non dall'IP. Con Firefox risponde 200. Estrae pochi prodotti dalla homepage: andrebbe individuata una categoria Pokemon dedicata per renderlo davvero utile.",
+      "priority": 3
+    },
+    {
+      "id": "universetcg",
+      "name": "Universe TCG",
+      "base_url": "https://www.universetcg.com",
+      "type": "shopify",
+      "enabled": false,
+      "disabled_reason": "Shopify raggiungibile, ma spedisce da Barcellona e nei primi 250 prodotti non ha nemmeno un Set Allenatore Fuoriclasse in italiano. Fuori perimetro.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "faoschwarz",
+      "name": "FAO Schwarz Italia",
+      "base_url": "https://www.faoschwarz.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "RIVENDITORE UFFICIALE (elencato su tcg.pokemon.com) ma non e' Shopify: /products.json risponde HTML. Selettori da mappare.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "cittadelsole",
+      "name": "Citta del Sole",
+      "base_url": "https://www.cittadelsole.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Nessun endpoint JSON (ne' Shopify ne' WooCommerce). Catena di giocattolerie: varrebbe la pena mappare i selettori.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "libraccio",
+      "name": "Libraccio",
+      "base_url": "https://www.libraccio.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Nessun endpoint JSON trovato.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "ubiklibri",
+      "name": "Ubik",
+      "base_url": "https://www.ubiklibri.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Nessun endpoint JSON trovato.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "msdistribuzione",
+      "name": "MS Distribuzione",
+      "base_url": "https://www.msdistribuzione.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Nessun endpoint JSON trovato.",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "id": "pokemonstoreit",
+      "name": "PokemonStore.it",
+      "base_url": "https://www.pokemonstore.it",
+      "type": "html_generic",
+      "enabled": false,
+      "disabled_reason": "Connessione fallita da questo IP in due tentativi distinti.",
+      "verified_at": "2026-10-02"
+    }
+  ],
+  "telegram": {
+    "_comment": "I valori veri vanno nei Secrets (TELEGRAM_TOKEN, TELEGRAM_CHAT_ID). Qui solo formattazione e comportamento.",
+    "parse_mode": "Markdown",
+    "disable_web_page_preview": false,
+    "message_template": "*DISPONIBILE A PREZZO DI LISTINO*\n`------------------------------`\n*Store*      {store_name}\n*Prodotto*   {product_title}\n*Prezzo*     {price} €   (MSRP {msrp} €)\n*Target*     {target_name}\n`------------------------------`\n[Apri la scheda prodotto]({product_url})\n_Rilevato alle {timestamp}_",
+    "error_template": "*NEGOZIO IN QUARANTENA*\n`------------------------------`\n*Negozio*    {store_id}\n*Errore*     `{error}`\n*Fallimenti* {consecutive_failures} consecutivi\nVerra' saltato per i prossimi giri e poi ritentato.",
+    "_notify_errors_comment": "Avvisa solo dopo N fallimenti consecutivi dello stesso store: un 503 occasionale non deve svegliarti.",
+    "_emoji_note": "Template senza emoji su richiesta. Le emoji previste dalla specifica iniziale sono recuperabili dal backup stores.json.bak.",
+    "global_alert_template": "*ATTENZIONE — POSSIBILE BLOCCO*\n`------------------------------`\nSono falliti *{falliti}* negozi su *{totali}* ({quota}%) nello stesso giro.\nQuando cadono tutti insieme di solito non sono i negozi: rete irraggiungibile, oppure un blocco che riguarda il nostro IP.\nGli store sopra soglia sono stati messi in quarantena e verranno ritentati."
+  },
+  "_TARGETS_NOTE": "Monitoraggio ristretto ai soli Elite Trainer Box / Set Allenatore Fuoriclasse, su richiesta. etb_30th e etb_megaevoluzione sono espliciti; etb_qualsiasi e' il catch-all che intercetta le espansioni future senza modifiche alla config. Se un ETB rientra in piu' target, notificalo UNA SOLA VOLTA usando il target a priority piu' bassa."
+}

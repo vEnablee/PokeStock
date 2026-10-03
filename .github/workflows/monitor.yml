@@ -1,0 +1,99 @@
+# =============================================================================
+# PokeStock — una scansione dei negozi per ogni esecuzione.
+#
+# Lo fa partire un cronjob esterno su cron-job.org, ogni 10 minuti dalle 8:00
+# alle 23:55 (fuso Europe/Rome, così l'ora legale la gestisce il servizio).
+# Per cambiare la frequenza si modifica il cronjob, non questo file.
+#
+# Una scansione completa dei 59 negozi dura circa 150 secondi misurati, più
+# una settantina di secondi fra checkout, setup di Python e installazione
+# delle dipendenze: in tutto meno di quattro minuti, dentro la finestra
+# di dieci. Se un giorno la superasse, il blocco `concurrency` accoderebbe
+# i risvegli invece di sovrapporli.
+# =============================================================================
+
+name: PokeStock
+
+on:
+  # Nessuno `schedule:`, deliberatamente: due scheduler in parallelo producono
+  # esecuzioni a orari imprevedibili senza sapere chi le ha causate. Ne resta
+  # uno solo, quello esterno, che chiama
+  # POST /repos/<owner>/<repo>/actions/workflows/monitor.yml/dispatches
+  # con body {"ref": "main"} e un token fine-grained limitato a questo
+  # repository e al solo permesso Actions.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Prova a vuoto: scansiona ma non invia nulla su Telegram'
+        type: boolean
+        default: false
+      seed:
+        description: 'Semina: registra lo stato senza notificare (primo avvio)'
+        type: boolean
+        default: false
+      verbose:
+        description: 'Elenca ogni prodotto trovato nel log del run'
+        type: boolean
+        default: false
+
+# Due esecuzioni non devono sovrapporsi: scriverebbero lo stesso Gist e
+# potrebbero inviare la stessa notifica due volte. La seconda attende la prima.
+concurrency:
+  group: pokestock
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  scansione:
+    name: Scansione negozi
+    runs-on: ubuntu-latest
+    # ⛔ Non sostituire con `self-hosted` se il repository è pubblico:
+    # chiunque potrebbe aprire una pull request da un fork e far eseguire
+    # quel codice sulla rete di casa.
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout del repository
+        uses: actions/checkout@v4
+
+      - name: Setup di Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-monitor.txt
+
+      - name: Installazione delle dipendenze del monitor
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-monitor.txt
+
+      - name: Scansione
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Memoria fra un'esecuzione e l'altra: su Actions il filesystem è
+          # effimero, quindi senza Gist ogni run ripartirebbe da zero e
+          # rispedirebbe notifiche per prodotti già visti.
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          PYTHONUNBUFFERED: '1'
+        run: |
+          ARGOMENTI="--run"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGOMENTI="--dry-run"; fi
+          if [ "${{ inputs.seed }}" = "true" ]; then ARGOMENTI="$ARGOMENTI --seed"; fi
+          if [ "${{ inputs.verbose }}" != "true" ]; then ARGOMENTI="$ARGOMENTI --json"; fi
+          echo "Argomenti: $ARGOMENTI"
+          python app.py $ARGOMENTI
+
+      # Rete di sicurezza: se il passo precedente è morto a metà, lo stato
+      # locale esiste comunque ma potrebbe non essere arrivato sul Gist.
+      # Se è già stato caricato, questo passaggio non fa danni.
+      - name: Salvataggio dello stato
+        if: always()
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+        run: python -m monitor --upload
