@@ -353,6 +353,75 @@ def _carica_storico(percorso: str, _mtime: float, _dimensione: int):
     return hist, hist.to_csv(index=False).encode("utf-8")
 
 
+# ------------------------------------------------------------------ NOTIFICHE
+
+def salva_preferenze(cfg, valori: dict) -> str:
+    """Scrive le preferenze dove il monitor andra' a leggerle.
+
+    Sul Gist se configurato (e' l'unico punto che dashboard e GitHub Actions
+    condividono), altrimenti nel file locale. Rilegge lo stato prima di
+    scrivere, per non sovrascrivere una scansione avvenuta nel frattempo.
+    """
+    from monitor import gist
+    from monitor.state import State
+
+    remoto = gist.da_ambiente()
+    percorso = cfg.path_for("state_file")
+    stato = State(percorso, remote=remoto)
+    stato.imposta_preferenze(valori)
+
+    if remoto is not None and remoto.gist_id:
+        remoto.scrivi(stato.payload(), descrizione="preferenze aggiornate dalla dashboard")
+        return "Gist"
+    stato.save()
+    return "file locale"
+
+
+def notifiche(cfg, stato: dict) -> None:
+    st.markdown(C.section("Notifiche Telegram", nome_icona="alert"), unsafe_allow_html=True)
+    st.caption("Le preferenze vivono nello stato condiviso: il monitor le legge "
+               "al giro successivo al salvataggio.")
+
+    pref = (stato.get("meta") or {}).get("preferenze") or {}
+    attivi = [t for t in cfg.raw["targets"] if t.get("enabled")]
+    etichette = {t["id"]: t["name"] for t in attivi}
+    scelti = pref.get("target_notificati")
+
+    attive = st.toggle("Invia notifiche su Telegram",
+                       value=bool(pref.get("notifiche_attive", True)),
+                       help="Spento, lo scraper continua a scansionare e ad aggiornare "
+                            "la dashboard, ma non manda nulla.")
+    selezione = st.multiselect(
+        "Avvisami solo per questi prodotti",
+        [t["id"] for t in attivi],
+        default=list(scelti) if scelti is not None else [t["id"] for t in attivi],
+        format_func=lambda tid: etichette.get(tid, tid),
+        help="Lasciali tutti selezionati per ricevere avvisi su qualsiasi prodotto "
+             "monitorato.")
+
+    if not attive:
+        st.warning("Le notifiche sono disattivate: non riceverai alcun avviso.")
+    elif not selezione:
+        st.warning("Nessun prodotto selezionato: equivale a non ricevere avvisi.")
+
+    if pref.get("aggiornate_il"):
+        st.caption(f"Ultima modifica: {pref['aggiornate_il'][:19].replace('T', ' ')}")
+
+    if st.button("Salva le preferenze di notifica", type="primary"):
+        tutti = [t["id"] for t in attivi]
+        try:
+            dove = salva_preferenze(cfg, {
+                "notifiche_attive": bool(attive),
+                # tutti selezionati equivale a nessun filtro: si salva null
+                "target_notificati": None if set(selezione) == set(tutti) else list(selezione),
+            })
+        except Exception as exc:  # noqa: BLE001 - l'errore va mostrato
+            st.error(f"Salvataggio fallito: {exc}")
+        else:
+            st.session_state["esito_config"] = f"Preferenze di notifica salvate su: {dove}"
+            st.rerun()
+
+
 # ---------------------------------------------------------------------- NEGOZI
 
 def negozi(cfg) -> None:

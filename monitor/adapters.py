@@ -437,6 +437,87 @@ html_schema_org = html_generic
 html_prestashop = html_generic
 
 
+def _oggetti_json(testo: str, marcatore: str) -> list[dict]:
+    """Estrae gli oggetti JSON che seguono un marcatore nel sorgente.
+
+    Alcuni temi incorporano i prodotti come JSON dentro una chiamata
+    JavaScript, per esempio productCard({...}). Leggerli da li' costa una
+    sola richiesta per categoria invece di una per scheda, e i campi di
+    disponibilita' e prezzo sono gia' strutturati.
+    """
+    fuori: list[dict] = []
+    inizio = 0
+    while True:
+        i = testo.find(marcatore, inizio)
+        if i < 0:
+            return fuori
+        i = testo.find("{", i + len(marcatore))
+        if i < 0:
+            return fuori
+        # bilanciamento delle graffe, ignorando quelle dentro le stringhe
+        livello, j, in_stringa, fuga = 0, i, False, False
+        while j < len(testo):
+            c = testo[j]
+            if fuga:
+                fuga = False
+            elif c == "\\":
+                fuga = True
+            elif c == '"':
+                in_stringa = not in_stringa
+            elif not in_stringa:
+                if c == "{":
+                    livello += 1
+                elif c == "}":
+                    livello -= 1
+                    if livello == 0:
+                        break
+            j += 1
+        try:
+            fuori.append(json.loads(testo[i:j + 1]))
+        except json.JSONDecodeError:
+            pass
+        inizio = j + 1
+
+
+async def html_embedded_json(client, cfg, store) -> list[Product]:
+    """Prodotti letti da un blob JSON incorporato nelle pagine di categoria."""
+    marcatore = store.get("json_marker", "productCard(")
+    campi = store.get("json_fields") or {
+        "title": "name", "price": "price", "available": "is_in_stock",
+        "url": "link", "image": "image",
+    }
+    out: list[Product] = []
+    visti: set[str] = set()
+
+    for entry in store.get("entry_points") or [store["base_url"]]:
+        try:
+            r = await _get(client, entry, cfg, store)
+        except FetchError:
+            continue
+        # il JSON e' annidato nell'HTML con le entita' sostituite
+        testo = html_mod.unescape(r.text)
+        for og in _oggetti_json(testo, marcatore):
+            url = str(og.get(campi["url"]) or "")
+            if not url or url in visti:
+                continue
+            visti.add(url)
+            titolo = html_mod.unescape(str(og.get(campi["title"]) or ""))
+            if not titolo:
+                continue
+            disponibile = bool(og.get(campi["available"]))
+            if og.get("is_on_backorder"):
+                disponibile = False
+            img = og.get(campi.get("image", "image")) or ""
+            if isinstance(img, dict):
+                img = img.get("src") or img.get("url") or ""
+            out.append(Product(
+                store_id=store["id"], store_name=store["name"], title=titolo,
+                price=_price(og.get(campi["price"])), available=disponibile,
+                url=url, image=str(img),
+            ))
+    return out
+
+
 async def html_sitemap(client, cfg, store) -> list[Product]:
     """Per i siti senza ricerca utilizzabile: si passa dalla sitemap."""
     encoding = store.get("encoding")
@@ -464,6 +545,7 @@ ADAPTERS = {
     "html_schema_org": html_schema_org,
     "html_prestashop": html_prestashop,
     "html_sitemap": html_sitemap,
+    "html_embedded_json": html_embedded_json,
 }
 
 

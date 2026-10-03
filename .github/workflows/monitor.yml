@@ -35,6 +35,10 @@ on:
         description: 'Elenca ogni prodotto trovato nel log del run'
         type: boolean
         default: false
+      test_telegram:
+        description: 'Invia solo un messaggio di prova su Telegram e si ferma'
+        type: boolean
+        default: false
       crea_gist:
         description: 'Crea il Gist di stato e stampane l-id (una volta sola, al primo avvio)'
         type: boolean
@@ -85,6 +89,11 @@ jobs:
           GIST_ID: ${{ secrets.GIST_ID }}
           PYTHONUNBUFFERED: '1'
         run: |
+          if [ "${{ inputs.test_telegram }}" = "true" ]; then
+            python app.py --test-telegram
+            exit $?
+          fi
+
           ARGOMENTI="--run"
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGOMENTI="--dry-run"; fi
           if [ "${{ inputs.seed }}" = "true" ]; then ARGOMENTI="$ARGOMENTI --seed"; fi

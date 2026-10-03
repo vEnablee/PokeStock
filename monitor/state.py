@@ -211,6 +211,25 @@ class State:
             del self.entries[key]
         return len(dropped)
 
+    # ----------------------------------------------------------- preferenze
+
+    def preferenze(self, predefinite: dict | None = None) -> dict:
+        """Preferenze di notifica, con i valori di partenza come riserva.
+
+        Vivono nello stato, quindi sul Gist: e' l'unico punto che la dashboard
+        e il monitor su Actions condividono davvero.
+        """
+        base = dict(predefinite or {})
+        base.update(self.meta.get("preferenze") or {})
+        base.setdefault("notifiche_attive", True)
+        base.setdefault("target_notificati", None)
+        return base
+
+    def imposta_preferenze(self, valori: dict) -> None:
+        pref = self.meta.setdefault("preferenze", {})
+        pref.update(valori)
+        pref["aggiornate_il"] = _iso(now())
+
     def payload(self) -> dict:
         """Lo stato serializzabile, identico a cio' che finisce su disco."""
         return {"meta": self.meta, "store_failures": self.store_failures,

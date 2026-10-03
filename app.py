@@ -40,6 +40,8 @@ def main_cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--clear-cache", action="store_true", help="svuota la cache e esce")
     parser.add_argument("--cache-stats", action="store_true", help="mostra lo stato della cache e esce")
     parser.add_argument("--limit", type=int, metavar="N", help="scansiona solo i primi N store (test leggeri)")
+    parser.add_argument("--test-telegram", action="store_true",
+                        help="invia un messaggio di prova e esce: verifica token e chat id")
     args = parser.parse_args(argv)
 
     from monitor import cache as cache_mod
@@ -81,6 +83,25 @@ def main_cli(argv: list[str] | None = None) -> int:
             print(f"  [{flag}] {s['id']:22s} {s['type']:22s} {s['name']}{extra}")
         print(f"\n{len(cfg.stores)} attivi su {len(cfg.all_stores)} totali")
         return 0
+
+    if args.test_telegram:
+        import httpx
+
+        from monitor.notifier import Telegram
+        tg = Telegram(cfg)
+        if not tg.configured:
+            print("TELEGRAM_TOKEN / TELEGRAM_CHAT_ID non impostati.")
+            return 1
+
+        async def _prova() -> bool:
+            async with httpx.AsyncClient() as c:
+                return await tg.send(c, "*PokeStock*\nMessaggio di prova: token e chat id "
+                                        "sono corretti, le notifiche funzionano.")
+        if asyncio.run(_prova()):
+            print("Messaggio inviato: controlla Telegram.")
+            return 0
+        print("Invio fallito: controlla i valori di TELEGRAM_TOKEN e TELEGRAM_CHAT_ID.")
+        return 1
 
     if not (args.run or args.dry_run or args.seed or args.store):
         parser.print_help()
@@ -376,6 +397,8 @@ def main_streamlit() -> None:
     with t2:
         views.analytics(cfg, entries, cfg.path_for("history_file"))
     with t3:
+        views.notifiche(cfg, stato)
+        st.divider()
         views.negozi(cfg)
 
 

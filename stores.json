@@ -48,7 +48,12 @@
     "quarantena_giri": 6,
     "_quarantena_comment": "Dopo 4 fallimenti consecutivi uno store viene saltato per i 6 giri successivi, poi ritentato. Insistere su un negozio che risponde 403 peggiora un eventuale ban e spreca tempo; un singolo avviso Telegram parte nel momento in cui entra in quarantena. Un successo azzera tutto.",
     "allarme_fallimenti_percentuale": 50,
-    "_allarme_comment": "Se in un solo giro cade almeno il 50% dei negozi (e almeno 3), non sono i negozi: e' la rete o un blocco che riguarda noi. Parte un avviso dedicato."
+    "_allarme_comment": "Se in un solo giro cade almeno il 50% dei negozi (e almeno 3), non sono i negozi: e' la rete o un blocco che riguarda noi. Parte un avviso dedicato.",
+    "preferenze_predefinite": {
+      "notifiche_attive": true,
+      "target_notificati": null
+    },
+    "_preferenze_comment": "Valori di partenza. Le preferenze vere vivono nello stato (quindi sul Gist), cosi' la dashboard puo' cambiarle e il monitor su Actions le legge al giro successivo. target_notificati a null significa 'tutti'; una lista di id limita gli avvisi a quei target."
   },
   "filters": {
     "_comment": "Filtri globali applicati a TUTTI i target, in aggiunta a quelli specifici del singolo target.",
@@ -386,6 +391,9 @@
       "search": "{base_url}/api/catalog_system/pub/products/search?ft={query}&_from=0&_to=49",
       "_fields": "[].items[].sellers[].commertialOffer.AvailableQuantity, .Price",
       "_note": "API pubblica VTEX, non autenticata."
+    },
+    "html_embedded_json": {
+      "_note": "Per i temi che incorporano i prodotti come JSON dentro una chiamata JavaScript. Si configura con 'json_marker' (il testo che precede l'oggetto) e 'json_fields' (la mappa dei campi)."
     }
   },
   "stores": [
@@ -1176,13 +1184,12 @@
       "id": "toyscenter",
       "name": "Toys Center",
       "base_url": "https://www.toyscenter.it",
-      "type": "html_schema_org",
+      "type": "html_embedded_json",
       "enabled": true,
       "priority": 1,
       "official_retailer": true,
       "kind": "big_retailer",
       "verified_at": "2026-10-02",
-      "product_url_pattern": "https://www.toyscenter.it/prodotto/{slug}/",
       "availability_markers": {
         "in_stock": [
           "https://schema.org/InStock"
@@ -1193,7 +1200,20 @@
         ]
       },
       "verified_evidence": "Pagina prodotto 'pokemon-megaevoluzione-fiamme-spettrali-set-allenatore-fuoriclasse' -> HTTP 200 con 'schema.org/OutOfStock'.",
-      "notes": "RIVENDITORE UFFICIALE. La ricerca interna e' JS-driven e torna 404 a curl: usare una lista di slug prodotto noti, oppure la sitemap."
+      "notes": "RIVENDITORE UFFICIALE. La griglia prodotti e' renderizzata in JavaScript: nell'HTML non ci sono link alle schede, ma i prodotti sono incorporati come JSON dentro chiamate productCard({...}), con nome, prezzo, link e is_in_stock gia' strutturati. Si legge da li': una richiesta per categoria invece di una per scheda.",
+      "entry_points": [
+        "https://www.toyscenter.it/tag-prodotto/pokemon-30-anniversario/",
+        "https://www.toyscenter.it/brand/pokemon/"
+      ],
+      "max_product_pages": 30,
+      "json_marker": "ProductCard(",
+      "json_fields": {
+        "title": "name",
+        "price": "price",
+        "available": "is_in_stock",
+        "url": "link",
+        "image": "image"
+      }
     },
     {
       "id": "giodicart",
@@ -1325,7 +1345,7 @@
       "name": "Vendilo Shop",
       "base_url": "https://www.vendiloshop.it",
       "type": "html_prestashop",
-      "enabled": true,
+      "enabled": false,
       "priority": 3,
       "official_retailer": false,
       "kind": "big_retailer",
@@ -1339,14 +1359,21 @@
           "OutOfStock"
         ]
       },
-      "notes": "PrestaShop: l'API /api e' chiusa senza chiave, si parsa l'HTML. Ha restituito 403 sulle sonde JSON ma 200 sulla home: usare headers browser completi."
+      "notes": "PrestaShop. La categoria dedicata al 30 Anniversario risponde 403, mentre la ricerca interna funziona: si passa da li'. Verificato il 2026-10-03.",
+      "search_url": "https://www.vendiloshop.it/it/ricerca?controller=search&s={query}",
+      "search_terms": [
+        "fuoriclasse",
+        "pokemon"
+      ],
+      "max_product_pages": 25,
+      "disabled_reason": "La ricerca interna risponde 200 e contiene i prodotti, ma l'adapter non estrae nulla: i link alle schede non seguono uno schema che il filtro per parole chiave riconosca. Serve ispezionare il markup dei risultati per capire come sono costruiti. Spento per non sprecare una richiesta a ogni giro."
     },
     {
       "id": "dungeondice",
       "name": "DungeonDice",
       "base_url": "https://www.dungeondice.it",
       "type": "html_prestashop",
-      "enabled": true,
+      "enabled": false,
       "priority": 3,
       "official_retailer": false,
       "kind": "boardgame_store",
@@ -1359,7 +1386,15 @@
         "out_of_stock": [
           "OutOfStock"
         ]
-      }
+      },
+      "search_url": "https://www.dungeondice.it/ricerca?controller=search&s={query}",
+      "search_terms": [
+        "fuoriclasse",
+        "pokemon"
+      ],
+      "max_product_pages": 25,
+      "notes": "PrestaShop. La homepage non porta a una categoria Pokemon (c'e' solo LEGO Pokemon), ma la ricerca interna risponde bene. Verificato il 2026-10-03.",
+      "disabled_reason": "La ricerca interna risponde 200 e contiene i prodotti, ma l'adapter non estrae nulla: i link alle schede non seguono uno schema che il filtro per parole chiave riconosca. Serve ispezionare il markup dei risultati per capire come sono costruiti. Spento per non sprecare una richiesta a ogni giro."
     },
     {
       "id": "estayon",
@@ -1517,7 +1552,11 @@
       "entry_points": [
         "https://www.strategia2.it/categoria/giochi-di-carte-collezionabili/"
       ],
-      "max_product_pages": 25
+      "max_product_pages": 25,
+      "search_url": "https://www.strategia2.it/?s={query}&post_type=product",
+      "search_terms": [
+        "fuoriclasse"
+      ]
     },
     {
       "id": "magicmerchant",

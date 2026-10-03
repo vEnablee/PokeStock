@@ -37,6 +37,7 @@ async def run(
     settings = cfg.settings
     dry_run = dry_run or settings.get("dry_run", False)
 
+
     soglia_q = settings.get("quarantena_dopo_fallimenti", 4)
     giri_q = settings.get("quarantena_giri", 6)
 
@@ -61,6 +62,14 @@ async def run(
 
     # Protezione fondamentale: al primo avvio si registra lo stato SENZA notificare.
     # Altrimenti il primo run spara decine di messaggi per prodotti disponibili da giorni.
+    pref = state.preferenze(settings.get("preferenze_predefinite"))
+    notifiche_attive = bool(pref.get("notifiche_attive", True))
+    target_scelti = pref.get("target_notificati")
+    if verbose and not notifiche_attive:
+        print("** notifiche disattivate dalla dashboard **")
+    if verbose and target_scelti:
+        print(f"** notifiche limitate a: {', '.join(target_scelti)} **")
+
     seeding = seed or state.is_first_run
     if seeding and verbose:
         print("** SEED: primo avvio, registro lo stato iniziale senza inviare notifiche **")
@@ -140,6 +149,10 @@ async def run(
                 above_msrp += 1
 
             should, reason = state.should_notify(product, renotify)
+            if should and not notifiche_attive:
+                should, reason = False, "notifiche disattivate dalla dashboard"
+            if should and target_scelti is not None and target["id"] not in target_scelti:
+                should, reason = False, f"target '{target['id']}' escluso dalla dashboard"
             if not within:
                 should, reason = False, f"fuori soglia MSRP (max {target['max_price_eur']:.2f} EUR)"
             if seeding:
