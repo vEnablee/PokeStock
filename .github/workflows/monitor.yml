@@ -35,6 +35,10 @@ on:
         description: 'Elenca ogni prodotto trovato nel log del run'
         type: boolean
         default: false
+      crea_gist:
+        description: 'Crea il Gist di stato e stampane l-id (una volta sola, al primo avvio)'
+        type: boolean
+        default: false
 
 # Due esecuzioni non devono sovrapporsi: scriverebbero lo stesso Gist e
 # potrebbero inviare la stessa notifica due volte. La seconda attende la prima.
@@ -56,10 +60,10 @@ jobs:
 
     steps:
       - name: Checkout del repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup di Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: pip
@@ -96,4 +100,7 @@ jobs:
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
-        run: python -m monitor --upload
+        run: |
+          OPZIONI="--upload"
+          if [ "${{ inputs.crea_gist }}" = "true" ]; then OPZIONI="$OPZIONI --crea-gist"; fi
+          python -m monitor $OPZIONI

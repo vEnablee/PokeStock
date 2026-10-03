@@ -17,8 +17,8 @@ from .config import load
 
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
-    if "--upload" not in argv:
-        print("uso: python -m monitor --upload")
+    if "--upload" not in argv and "--crea-gist" not in argv:
+        print("uso: python -m monitor --upload [--crea-gist]")
         return 2
 
     remoto = gist.da_ambiente()
@@ -36,6 +36,15 @@ def main(argv: list[str] | None = None) -> int:
     dati = json.loads(percorso.read_text(encoding="utf-8"))
     try:
         if not remoto.gist_id:
+            # La creazione va chiesta esplicitamente: creare in automatico a ogni
+            # run senza GIST_ID genera un Gist nuovo ogni volta, e con il cronjob
+            # acceso se ne accumula uno ogni dieci minuti.
+            if "--crea-gist" not in argv:
+                print("::error::GIST_ID non impostato: lo stato NON viene conservato "
+                      "e ogni esecuzione ripartira' da zero senza mai notificare nulla. "
+                      "Esegui una volta il workflow con l'opzione 'crea_gist' e salva "
+                      "l'id che compare qui sotto come secret GIST_ID.")
+                return 1
             nuovo = remoto.crea(dati)
             print(f"[stato] creato un Gist nuovo: {nuovo}")
             print(f"::notice::Salva questo id come secret GIST_ID: {nuovo}")

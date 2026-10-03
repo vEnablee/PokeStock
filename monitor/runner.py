@@ -47,6 +47,12 @@ async def run(
             raise SystemExit(f"store '{only_store}' non trovato in stores.json")
 
     remoto = gist.da_ambiente()
+    if remoto is not None and not remoto.gist_id:
+        # Senza GIST_ID ogni esecuzione riparte da zero, quindi si auto-semina e
+        # non notifica nulla: un guasto che altrimenti resta invisibile.
+        print("::warning::GIST_TOKEN presente ma GIST_ID assente: lo stato non "
+              "verra' conservato, questa esecuzione si auto-seminera' e non "
+              "invierà alcuna notifica. Imposta il secret GIST_ID.")
     state = State(cfg.path_for("state_file"), remote=remoto)
     if verbose and remoto:
         print(f"** stato caricato da: {state.origine} **")

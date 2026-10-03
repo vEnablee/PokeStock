@@ -96,6 +96,58 @@ def main_cli(argv: list[str] | None = None) -> int:
 
 # --------------------------------------------------------------------- Streamlit
 
+def _credenziali_da_secrets() -> None:
+    """Porta i secret di Streamlit nelle variabili d'ambiente.
+
+    Tutto il resto del codice legge os.environ, mentre su Streamlit Cloud le
+    credenziali arrivano da st.secrets: questo ponte evita di avere due
+    percorsi diversi per la stessa cosa.
+    """
+    import os
+
+    import streamlit as st
+    for chiave in ("GIST_TOKEN", "GIST_ID", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID"):
+        if os.environ.get(chiave):
+            continue
+        try:
+            valore = st.secrets.get(chiave)
+        except Exception:  # noqa: BLE001 - nessun file di secret: normale in locale
+            valore = None
+        if valore:
+            os.environ[chiave] = str(valore)
+
+
+def carica_stato(cfg) -> tuple[dict, str]:
+    """Stato per la dashboard, con la fonte da cui arriva.
+
+    Sul cloud il file locale non esiste (e' escluso dal repository), quindi la
+    fonte e' il Gist scritto dal monitor. In locale si usa il file.
+    """
+    import json
+
+    import streamlit as st
+
+    from monitor import gist
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def _dal_gist(gist_id: str, _token: str) -> dict:
+        return gist.GistStore(_token, gist_id).leggi()
+
+    remoto = gist.da_ambiente()
+    if remoto is not None and remoto.gist_id:
+        try:
+            dati = _dal_gist(remoto.gist_id, remoto.token)
+            if dati:
+                return dati, "gist"
+        except Exception as exc:  # noqa: BLE001 - si ripiega sul file locale
+            st.warning(f"Lettura del Gist fallita: {exc}")
+
+    percorso = cfg.path_for("state_file")
+    if percorso.exists():
+        return json.loads(percorso.read_text(encoding="utf-8")), "file locale"
+    return {}, "nessuna"
+
+
 def main_streamlit() -> None:
     import json
 
@@ -109,6 +161,7 @@ def main_streamlit() -> None:
     st.set_page_config(page_title="PokeStock", layout="wide",
                        initial_sidebar_state="expanded")
     st.markdown(CSS, unsafe_allow_html=True)
+    _credenziali_da_secrets()
 
     cfg = config_mod.load()
 
@@ -122,8 +175,7 @@ def main_streamlit() -> None:
                    "questo endpoint va bene per una scansione su richiesta, non come scheduler.")
         return
 
-    state_path = cfg.path_for("state_file")
-    stato = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+    stato, fonte_stato = carica_stato(cfg)
     entries = list(stato.get("entries", {}).values())
     meta = stato.get("meta", {})
     ultimo = meta.get("last_run", {})
@@ -210,6 +262,10 @@ def main_streamlit() -> None:
         scan = st.button("FORZA SCANSIONE ORA", type="primary", width="stretch")
 
         st.divider()
+        st.caption(f"Dati letti da: {fonte_stato}")
+        if fonte_stato == "nessuna":
+            st.warning("Nessuno stato disponibile. In locale esegui una scansione; "
+                       "sul cloud imposta i secret GIST_TOKEN e GIST_ID.")
         if ultimo:
             parziale = " (parziale)" if ultimo.get("partial") else ""
             st.caption(f"Ultimo run{parziale}: {ultimo.get('duration_s', 0)}s · "
