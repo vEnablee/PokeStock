@@ -1,89 +1,56 @@
 # PokeStock
 
-Monitor di disponibilità a prezzo di listino per Elite Trainer Box.
+Monitor di disponibilità per Elite Trainer Box Pokémon presso e-commerce
+italiani. Avvisa su Telegram quando un prodotto torna disponibile entro una
+soglia di prezzo definita.
 
-Monitora la disponibilità degli **Elite Trainer Box / Set Allenatore Fuoriclasse Pokémon**
-presso **55 e-commerce italiani** e avvisa su Telegram **solo** quando un prodotto torna
-disponibile **entro la soglia MSRP**.
+## Come funziona
 
-> **Stato attuale: solo locale.** Non c'è nessun deploy configurato — niente GitHub Actions,
-> niente Streamlit Cloud, niente cron-job.org. Si aggiungono quando lo decidi tu.
+Un cronjob esterno risveglia un workflow su GitHub Actions, che interroga i
+negozi configurati, confronta il risultato con lo stato dell'esecuzione
+precedente e notifica solo le novità. Lo stato persiste su un GitHub Gist.
 
----
+```
+cron-job.org ──> GitHub Actions ──> negozi ──> Telegram
+                       ↕
+                   Gist (stato)
+                       ↕
+                  dashboard Streamlit
+```
+
+Le notifiche partono **solo sulla transizione** da esaurito a disponibile: un
+prodotto già in stock non genera avvisi ripetuti.
 
 ## Avvio rapido
 
 ```bash
-make setup           # virtualenv + dipendenze
-make test            # test offline del matching, zero richieste di rete
-make smoke           # prova su 3 soli store, con cache
-make scan            # scansione completa in dry-run, nessuna notifica inviata
-make dashboard       # dashboard su http://localhost:8501
+make setup       # virtualenv e dipendenze
+make test        # test offline, nessuna richiesta di rete
+make scan        # scansione completa senza inviare notifiche
+make dashboard   # interfaccia su http://localhost:8501
 ```
 
-La prima scansione reale è un **seed**: registra lo stato di tutti i prodotti **senza
-inviare nulla**. È voluto — senza, il primo giro sparerebbe decine di messaggi per
-prodotti disponibili da giorni. Dal secondo giro in poi arrivano solo le transizioni
-*esaurito → disponibile*.
-
-## Non farsi bannare l'IP
-
-Questo è il punto su cui il progetto è più attento, perché un ban lo rende inutile.
-
-| Protezione | Dove | Valore |
-|---|---|---|
-| Store interrogati in parallelo | `settings.concurrency` | 4 |
-| Pausa minima fra 2 richieste allo **stesso** dominio | `settings.min_seconds_between_requests_per_store` | 1,0 s |
-| Ritardo casuale prima di ogni richiesta | `settings.jitter_seconds` | 0,3–1,5 s |
-| Tetto di pagine prodotto per store HTML | `settings.max_product_pages` | 15 |
-| HTTP 429 | gestito come errore ritentabile con backoff, mai ignorato | |
-| Cache su disco | `--cache` | rilanci a costo zero |
-
-**Regola pratica durante lo sviluppo: usa sempre `--cache`.**
-
-```bash
-python3 app.py --dry-run --cache     # 1° giro: scarica. 2° giro: 0 richieste di rete
-python3 app.py --cache-stats
-python3 app.py --clear-cache
-```
-
-Misurato: con cache attiva il secondo giro passa da 8,3 s a 0,6 s e **non tocca la rete**.
-Per provare una modifica al codice servono zero richieste.
+La prima esecuzione è una **semina**: registra lo stato corrente senza inviare
+nulla. Senza, il primo giro segnalerebbe ogni prodotto già disponibile.
 
 ## Comandi
 
 ```bash
-python3 app.py --dry-run              # scansiona e stampa, non invia niente
-python3 app.py --dry-run --cache      # come sopra, senza traffico sui rilanci
-python3 app.py --dry-run --limit 3    # solo i primi 3 store
-python3 app.py --store cardgameclub   # un solo store, per debug
-python3 app.py --seed                 # riallinea lo stato senza notificare
-python3 app.py --run                  # scansione vera, invia su Telegram
-python3 app.py --list-stores          # elenco store, con i motivi di quelli disattivati
-streamlit run app.py                  # dashboard locale
+python app.py --dry-run           # scansiona e stampa, non invia
+python app.py --run               # scansione completa con notifiche
+python app.py --seed              # riallinea lo stato senza notificare
+python app.py --test-telegram     # verifica token e chat id
+python app.py --store ID          # un solo negozio, per diagnosi
+python app.py --dry-run --cache   # usa la cache locale: nessun traffico
+python app.py --list-stores       # elenco dei negozi configurati
 ```
 
-## Telegram
+## Configurazione
 
-Servono due variabili d'ambiente. In locale:
+Tutto vive in `stores.json`: nessun dominio, parola chiave o soglia di prezzo
+è scritta nel codice.
 
-```bash
-export TELEGRAM_TOKEN="123456:ABC..."     # da @BotFather
-export TELEGRAM_CHAT_ID="-1001234567890"  # da @userinfobot, o l'id del canale
-python3 app.py --run
-```
-
-Senza, lo scraper gira lo stesso e stampa che salta le notifiche. Con `--dry-run` i
-messaggi vengono stampati a video già formattati, così controlli il testo prima.
-
-Per prendere il `chat_id` di un canale: aggiungi il bot come amministratore, manda un
-messaggio, poi apri `https://api.telegram.org/bot<TOKEN>/getUpdates`.
-
-## Configurazione: `stores.json`
-
-È l'unica fonte di verità. Nessun dominio, keyword o prezzo è hardcodato nel codice.
-
-**Cambiare cosa monitorare** → sezione `targets`:
+### Prodotti da monitorare
 
 ```json
 {
@@ -92,221 +59,135 @@ messaggio, poi apri `https://api.telegram.org/bot<TOKEN>/getUpdates`.
   "must_contain_all": [],
   "must_contain_any_groups": [
     ["fuoriclasse", "elite trainer box", "etb"],
-    ["anniversario", "anniversary", "celebration"],
-    ["30", "30esimo", "30°", "trentesimo", "30th"]
+    ["anniversario", "celebration"],
+    ["30", "30esimo", "30°", "30th"]
   ],
-  "must_not_contain": ["megaevoluzione", "bundle", "tin", "..."]
+  "must_not_contain": ["bundle", "tin", "blister"]
 }
 ```
 
-- `must_contain_all` → tutte presenti (AND)
-- `must_contain_any_groups` → almeno una per **ogni** gruppo (gruppi in AND, keyword in OR)
-- `must_not_contain` → una sola presenza scarta il prodotto
+- `must_contain_all` — tutte presenti
+- `must_contain_any_groups` — almeno una per ogni gruppo (gruppi in AND,
+  parole in OR)
+- `must_not_contain` — una sola presenza scarta il prodotto
 
-**Il match è a confine di parola, sempre.** Non è un dettaglio: con il match a
-sottostringa `"tin"` matcha dentro `bus**tin**e`, `Mar**tin**elia`, `Vic**tin**i`, e `"30"`
-matcha dentro `3039`, `30cm`, `POS2**30**138`. Il primo collaudo produceva avvisi per un
-*Topolino n. 3039* e un *set di trucchi Martinelia*. I casi sono congelati in
-`tests/test_matching.py`.
+**Il confronto avviene a confine di parola.** Non è un dettaglio: con il match
+a sottostringa `tin` ricade dentro `bustine` e `30` dentro `3039`. Di
+conseguenza `30` non corrisponde a `30th` né a `30esimo`, che vanno elencati a
+parte. I casi limite sono bloccati da `tests/test_matching.py`.
 
-Conseguenza da ricordare: `"30"` **non** matcha `30th` né `30esimo` (cifra seguita da
-lettera = nessun confine). Per questo le varianti sono elencate separatamente.
+### Negozi
 
-**Cataloghi enormi**: se un negozio vende molto altro (una libreria ha migliaia di titoli),
-aggiungi `"collections": ["pokemon"]` allo store: l'adapter interrogherà solo quella
-collection. Su `giuntialpunto.it` il catalogo generale non contiene nemmeno un prodotto
-Pokémon nelle prime 750 voci, mentre `/collections/pokemon` ne restituisce 101 in 0,8 s.
+Ogni negozio dichiara un adapter:
 
-**Aggiungere un negozio** → sezione `stores`. Prima identifica la piattaforma:
+| `type` | Sorgente dei dati |
+|---|---|
+| `shopify` | `/products.json`, oppure una singola collection |
+| `woocommerce_store_api` | API Store di WooCommerce |
+| `vtex` | API catalogo VTEX |
+| `html_schema_org`, `html_generic` | JSON-LD o marcatori nel markup |
+| `html_embedded_json` | dati di prodotto incorporati nel sorgente |
+| `html_sitemap` | sitemap filtrata |
 
-```bash
-curl -s "https://NEGOZIO.it/products.json?limit=3" | head -c 200                    # Shopify se è JSON
-curl -s "https://NEGOZIO.it/wp-json/wc/store/v1/products?search=pokemon" | head -c 200  # WooCommerce se è JSON
+I negozi disattivati restano nel file con il motivo in `disabled_reason`, così
+la diagnosi non va persa.
+
+## Esecuzione automatica
+
+### Secret del repository
+
+| Secret | Origine |
+|---|---|
+| `TELEGRAM_TOKEN` | @BotFather |
+| `TELEGRAM_CHAT_ID` | id della chat o del canale |
+| `GIST_TOKEN` | token *classic* con il solo scope `gist` |
+| `GIST_ID` | generato al primo avvio |
+
+I token fine-grained non coprono i Gist: per `GIST_TOKEN` serve un token
+classic.
+
+### Primo avvio
+
+1. Esegui il workflow con `crea_gist: true` — crea il Gist e ne stampa l'id
+2. Salva l'id come secret `GIST_ID`
+3. Esegui con `seed: true` per registrare lo stato iniziale
+4. Verifica con `test_telegram: true`
+
+Il Gist è necessario perché su GitHub Actions il filesystem è effimero: senza
+memoria esterna ogni esecuzione ripartirebbe da zero e rispedirebbe le stesse
+notifiche.
+
+### Trigger
+
+Lo `schedule:` di GitHub è impreciso e tenerne due in parallelo rende
+imprevedibile l'orario reale. Il workflow è quindi `workflow_dispatch` puro,
+svegliato da un cronjob esterno:
+
+```
+POST https://api.github.com/repos/<owner>/<repo>/actions/workflows/monitor.yml/dispatches
+body    {"ref":"main"}
+header  Authorization: Bearer <token con permesso Actions: read and write>
+        Accept: application/vnd.github+json
 ```
 
-| `type` | Endpoint | Campo disponibilità |
-|---|---|---|
-| `shopify` | `/products.json?limit=250&page=N`, oppure `/collections/<handle>/products.json` se lo store dichiara `collections` | `variants[].available` |
-| `woocommerce_store_api` | `/wp-json/wc/store/v1/products?search=` | `is_in_stock`, prezzo **in centesimi** |
-| `vtex` | `/api/catalog_system/pub/products/search?ft=` | `AvailableQuantity` |
-| `html_schema_org` / `html_generic` / `html_prestashop` | `entry_points` → JSON-LD `Product` | `offers.availability` |
-| `html_sitemap` | `sitemap_url` filtrata | marcatori testuali |
-
-## Cosa c'è dentro
-
-- **55 store attivi**: 30 Shopify, 13 WooCommerce, 12 da parsing HTML
-- **42 store disabilitati** ma documentati con `disabled_reason` — non sono scarti:
-  la maggior parte risponde 403 agli IP datacenter e tornerebbe utilizzabile da una
-  connessione residenziale (CarteMagic, Gamelife, Il Covo del Nerd, LPP Collecting…)
-- **4 rivenditori ufficiali** (fonte: `tcg.pokemon.com`)
-- **15 negozi non specializzati**: giocattolerie, cartolerie, un'edicola, un negozio di
-  informatica, un distributore e una catena di librerie da oltre 270 punti vendita.
-  Sono i meno monitorati, e spesso tengono il prezzo di listino
-
-Ogni store riporta `verified_at` e, dove serve, `verified_evidence`: la prova concreta
-raccolta interrogandolo.
-
-## Limiti noti, dichiarati
-
-- Gli 11 store HTML sono i più fragili: dipendono dal markup e si rompono se il negozio
-  cambia tema. `dadiemattoncini.it` ha i selettori ancora da rifinire.
-- `packmonstore.it` risponde HTML al posto del JSON sotto rate limiting. Il codice valida
-  il `Content-Type` prima di parsare, quindi fallisce in modo pulito invece di crashare.
-- `e-stayon.com` è disabilitato: è VTEX ma l'endpoint pubblico standard non risponde.
-- **Amazon è escluso per scelta**: i prodotti caldi sono venduti "su invito", quindi la
-  disponibilità non è osservabile dalla pagina.
-- Un prodotto può comparire in più target (`etb_30th` e `etb_qualsiasi`): viene notificato
-  **una volta sola**, attribuito al target con `priority` più bassa.
+Una risposta `204 No Content` indica che il workflow è partito.
 
 ## Dashboard
 
 ```bash
-make dashboard          # streamlit run app.py  ->  http://localhost:8501
+make dashboard
 ```
 
-Tema dark con glassmorphism, CSS custom iniettato, griglia di card animate.
-Tre schede:
+Tre schede: i prodotti disponibili in griglia, l'andamento dei prezzi con il
+confronto rispetto alla soglia, e la configurazione di soglie, parole chiave e
+negozi.
 
-**⚡ LIVE DROPS** — 4 KPI (prodotti monitorati, disponibili a MSRP, negozi che
-rispondono, risparmio stimato) e una griglia responsive di card con immagine reale
-del prodotto presa dal negozio, badge di stato, prezzo colorato (verde entro MSRP,
-ambra sopra), scarto rispetto all'MSRP, badge dello store con la piattaforma, e
-pulsante "ACQUISTA ORA" che apre la scheda nel negozio.
+Da qui si decide anche **se e per quali prodotti ricevere notifiche**: le
+preferenze vengono salvate nello stato condiviso, quindi il monitor le applica
+dal giro successivo.
 
-Animazioni: hover che solleva la card e accende il bordo, zoom dolce sull'immagine,
-puntino verde pulsante quando c'è almeno un drop, comparsa in `fadeInUp` scaglionata,
-skeleton con effetto shimmer durante la scansione.
+Per pubblicarla su Streamlit Community Cloud servono `GIST_TOKEN` e `GIST_ID`
+fra i secret dell'app: sul cloud il file di stato locale non esiste, e i dati
+arrivano dal Gist.
 
-**📈 STORICO & ANALYTICS** — dispersione dei prezzi per target (ogni punto è un
-negozio, la linea tratteggiata è la soglia MSRP: tutto ciò che sta sopra è ricarico),
-disponibilità per negozio, tabella min/mediana/max per target, log scaricabile in CSV.
+## Comportamento verso i negozi
 
-**⚙️ NEGOZI & SOGLIE** — modifica soglie MSRP, attiva/disattiva target e negozi,
-edita le parole chiave e aggiungi nuovi negozi, il tutto scritto su `stores.json`
-con backup automatico in `stores.json.bak`.
+Il monitor interroga pochi negozi in parallelo, distanzia le richieste allo
+stesso dominio e applica un ritardo casuale. Un HTTP 429 viene trattato come
+errore ritentabile.
 
-**Sidebar** — ricerca nel titolo, filtro categoria e negozio, slider prezzo massimo,
-disponibilità (tutti / solo disponibili / solo pre-ordini), toggle "solo entro MSRP",
-numero di card mostrate, interruttore notifiche Telegram e "FORZA SCANSIONE ORA".
+Dopo alcuni fallimenti consecutivi un negozio entra in **quarantena**: viene
+saltato per qualche giro e poi ritentato, con un avviso Telegram. Se in una
+singola esecuzione cade oltre metà dei negozi, parte un allarme dedicato: in
+quel caso di solito il problema è a monte, non nei negozi.
 
-Il toggle Telegram è anche una sicurezza: se è spento la scansione gira in dry-run,
-quindi dal browser non puoi far partire messaggi per sbaglio.
+In sviluppo, `--cache` conserva le risposte su disco e permette di iterare sul
+codice senza generare traffico.
 
-### Sul "risparmio stimato"
+## Limiti noti
 
-È la somma, sui prodotti disponibili entro MSRP, della differenza tra il prezzo
-pagato e la **mediana dei listini sopra soglia per lo stesso target**. Uso la mediana
-e non il massimo di proposito: in questo momento esiste un annuncio a 2.300 €, e
-prenderlo come riferimento gonfierebbe il risparmio in modo ridicolo. Il numero
-compare solo se ci sono almeno 3 listini sopra soglia da cui ricavarla.
-
-Per calcolarlo lo scraper registra **anche** i prodotti fuori soglia (oggi 353 su 498),
-che però non generano mai notifiche.
+- Alcuni negozi rispondono agli IP residenziali ma non a quelli dei datacenter:
+  su GitHub Actions restano irraggiungibili.
+- Gli adapter HTML dipendono dal markup e vanno rivisti se un negozio cambia
+  tema.
+- I marketplace che vendono su invito non sono osservabili e sono esclusi.
+- Streamlit Community Cloud sospende le app inattive: è una dashboard, non uno
+  scheduler.
 
 ## Struttura
 
 ```
-stores.json          configurazione verificata sul campo — unica fonte di verità
-PROMPT.md            la specifica da cui è nato il progetto
-app.py               CLI + dashboard Streamlit
+stores.json        configurazione: negozi, prodotti, soglie
+app.py             CLI e dashboard
 monitor/
-  config.py          caricamento e validazione
-  matching.py        match a confine di parola, logica booleana dei target
-  adapters.py        un adapter per piattaforma, con cache e rate limiting
-  state.py           stato persistente: decide cosa notificare
-  notifier.py        Telegram
-  runner.py          orchestrazione di una scansione
-  cache.py           cache HTTP su disco per sviluppare senza traffico
-  models.py          Product, categorie, rilevamento pre-ordine
-dashboard/
-  styles.py          CSS custom: glassmorphism, keyframes, griglia
-  components.py      HTML di KPI, card prodotto, skeleton
-  views.py           le tre schede
-tests/               test offline, zero richieste di rete
-state.json           stato corrente (generato)
-history.jsonl        storico append-only (generato)
+  config.py        caricamento e validazione
+  matching.py      confronto a confine di parola
+  adapters.py      un adapter per piattaforma
+  state.py         stato persistente e preferenze
+  gist.py          persistenza remota
+  notifier.py      Telegram
+  runner.py        orchestrazione
+  cache.py         cache HTTP per lo sviluppo
+dashboard/         interfaccia Streamlit
+tests/             test offline
 ```
-
-## Esecuzione automatica
-
-Lo schema è quello di Screeper: **un cronjob esterno sveglia GitHub Actions, che
-scansiona e tiene la memoria su un Gist**.
-
-```
-cron-job.org ──POST .../actions/workflows/monitor.yml/dispatches──> GitHub Actions
-  ogni 10 min                                                             │
-  8:00–23:55 Europe/Rome                                                  ▼
-                                                           legge lo stato dal Gist
-                                                           scansiona i negozi
-                                                           notifica su Telegram
-                                                           riscrive il Gist
-```
-
-**Perché non lo `schedule:` di GitHub.** Lo scheduler interno è notoriamente
-impreciso e tenerne due in parallelo produce esecuzioni a orari imprevedibili
-senza sapere chi le ha causate. Il workflow è `workflow_dispatch` puro.
-
-**Perché il Gist.** Su Actions il filesystem è effimero: senza memoria esterna
-ogni run ripartirebbe da zero e rispedirebbe notifiche per prodotti già visti.
-Lo stato pesa 362 KB in chiaro e 48 KB compresso, dentro il limite di un Gist.
-
-**Perché il repository è pubblico.** Con 96 run al giorno da circa 3,5 minuti si
-consumano ~9.700 minuti al mese. Un repository pubblico ha minuti illimitati;
-uno privato ne include 2.000, esauriti in poco più di sei giorni.
-
-### Cosa serve configurare
-
-**1. Secret del repository** (Settings → Secrets and variables → Actions):
-
-| Secret | Dove si ottiene |
-|---|---|
-| `TELEGRAM_TOKEN` | @BotFather, creando un bot nuovo |
-| `TELEGRAM_CHAT_ID` | @userinfobot, oppure l'id del canale |
-| `GIST_TOKEN` | token **classic** con il solo scope `gist` (i token fine-grained non coprono i Gist) |
-| `GIST_ID` | si ottiene al primo run (vedi sotto) |
-
-**2. Primo avvio — la semina.** Senza, il primo run invierebbe decine di
-notifiche per prodotti disponibili da giorni:
-
-```
-Actions → Monitor ETB Pokémon → Run workflow → seed: true
-```
-
-Se `GIST_ID` è vuoto, il passo di salvataggio crea un Gist nuovo e ne stampa
-l'id nel log come `::notice::`. Copialo nei secret e i run successivi lo useranno.
-
-**3. Cronjob su cron-job.org:**
-
-- URL: `https://api.github.com/repos/vEnablee/PokeStock/actions/workflows/monitor.yml/dispatches`
-- Metodo: `POST`, body `{"ref": "main"}`
-- Header: `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`
-- Il token è fine-grained, limitato a questo repository, permesso **Actions: read and write**
-- Attenzione: non è lo stesso token del Gist. Questo vive su cron-job.org, non nei secret del repo
-- Cadenza: ogni 10 minuti, 8:00–23:55, fuso Europe/Rome
-
-### Protezioni automatiche
-
-**Quarantena.** Dopo 4 fallimenti consecutivi un negozio viene saltato per i 6
-giri successivi, poi ritentato, e parte un solo avviso Telegram nel momento in
-cui ci entra. Insistere su un negozio che risponde 403 peggiora un eventuale
-blocco e spreca tempo. Un successo azzera tutto.
-
-**Interruttore globale.** Se in un solo giro cade almeno il 50% dei negozi (e
-almeno 3), arriva un avviso dedicato: quando cadono tutti insieme di solito non
-sono i negozi, è la rete o un blocco che riguarda noi.
-
-**Niente sovrapposizioni.** Il blocco `concurrency` accoda i risvegli invece di
-sovrapporli: due run scriverebbero lo stesso Gist.
-
-**Rete di sicurezza.** Uno step `if: always()` ricarica lo stato sul Gist se il
-run principale è morto a metà.
-
-## Note sul deploy
-
-GitHub Actions gira da IP Azure. Non è verificato se i negozi che oggi
-rispondono bene da IP residenziale italiano si comportino allo stesso modo da
-lì: se dopo i primi run compaiono quarantene a catena, il sospetto è quello.
-
-Streamlit Community Cloud va in sleep dopo un periodo di inattività: è una
-dashboard, non uno scheduler. Se la pubblichi lì, va fatta leggere **dal Gist**
-e non dal file locale, altrimenti mostra dati fermi.
