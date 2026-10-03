@@ -262,7 +262,7 @@ uno privato ne include 2.000, esauriti in poco più di sei giorni.
 |---|---|
 | `TELEGRAM_TOKEN` | @BotFather, creando un bot nuovo |
 | `TELEGRAM_CHAT_ID` | @userinfobot, oppure l'id del canale |
-| `GIST_TOKEN` | token fine-grained con il solo permesso **gist** |
+| `GIST_TOKEN` | token **classic** con il solo scope `gist` (i token fine-grained non coprono i Gist) |
 | `GIST_ID` | si ottiene al primo run (vedi sotto) |
 
 **2. Primo avvio — la semina.** Senza, il primo run invierebbe decine di
@@ -281,6 +281,7 @@ l'id nel log come `::notice::`. Copialo nei secret e i run successivi lo userann
 - Metodo: `POST`, body `{"ref": "main"}`
 - Header: `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`
 - Il token è fine-grained, limitato a questo repository, permesso **Actions: read and write**
+- Attenzione: non è lo stesso token del Gist. Questo vive su cron-job.org, non nei secret del repo
 - Cadenza: ogni 10 minuti, 8:00–23:55, fuso Europe/Rome
 
 ### Protezioni automatiche
