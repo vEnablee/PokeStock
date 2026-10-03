@@ -277,7 +277,7 @@ l'id nel log come `::notice::`. Copialo nei secret e i run successivi lo userann
 
 **3. Cronjob su cron-job.org:**
 
-- URL: `https://api.github.com/repos/<owner>/<repo>/actions/workflows/monitor.yml/dispatches`
+- URL: `https://api.github.com/repos/vEnablee/PokeStock/actions/workflows/monitor.yml/dispatches`
 - Metodo: `POST`, body `{"ref": "main"}`
 - Header: `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`
 - Il token è fine-grained, limitato a questo repository, permesso **Actions: read and write**

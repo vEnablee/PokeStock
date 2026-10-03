@@ -18,7 +18,7 @@ on:
   # Nessuno `schedule:`, deliberatamente: due scheduler in parallelo producono
   # esecuzioni a orari imprevedibili senza sapere chi le ha causate. Ne resta
   # uno solo, quello esterno, che chiama
-  # POST /repos/<owner>/<repo>/actions/workflows/monitor.yml/dispatches
+  # POST /repos/vEnablee/PokeStock/actions/workflows/monitor.yml/dispatches
   # con body {"ref": "main"} e un token fine-grained limitato a questo
   # repository e al solo permesso Actions.
   workflow_dispatch:
