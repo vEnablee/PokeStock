@@ -1016,7 +1016,7 @@
       "name": "OroCardStore",
       "base_url": "https://www.orocardstore.com",
       "type": "woocommerce_store_api",
-      "enabled": true,
+      "enabled": false,
       "priority": 2,
       "official_retailer": false,
       "kind": "tcg_specialist",
@@ -1025,12 +1025,12 @@
         "fuoriclasse",
         "anniversario"
       ],
-      "verified_at": "2026-10-02",
       "stats": {
         "pokemon_products": 69,
         "available": 31
       },
-      "notes": "Offre anche ritiro in negozio."
+      "notes": "Offre anche ritiro in negozio.",
+      "disabled_reason": "Rimosso su richiesta il 2026-10-03. Rispondeva 403 agli IP di GitHub Actions (funzionava da IP residenziale italiano), quindi falliva a ogni giro automatico."
     },
     {
       "id": "levantecomputer",

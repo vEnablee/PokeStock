@@ -3,7 +3,7 @@
 Monitor di disponibilità a prezzo di listino per Elite Trainer Box.
 
 Monitora la disponibilità degli **Elite Trainer Box / Set Allenatore Fuoriclasse Pokémon**
-presso **56 e-commerce italiani** e avvisa su Telegram **solo** quando un prodotto torna
+presso **55 e-commerce italiani** e avvisa su Telegram **solo** quando un prodotto torna
 disponibile **entro la soglia MSRP**.
 
 > **Stato attuale: solo locale.** Non c'è nessun deploy configurato — niente GitHub Actions,
@@ -134,8 +134,8 @@ curl -s "https://NEGOZIO.it/wp-json/wc/store/v1/products?search=pokemon" | head 
 
 ## Cosa c'è dentro
 
-- **56 store attivi**: 30 Shopify, 14 WooCommerce, 12 da parsing HTML
-- **41 store disabilitati** ma documentati con `disabled_reason` — non sono scarti:
+- **55 store attivi**: 30 Shopify, 13 WooCommerce, 12 da parsing HTML
+- **42 store disabilitati** ma documentati con `disabled_reason` — non sono scarti:
   la maggior parte risponde 403 agli IP datacenter e tornerebbe utilizzabile da una
   connessione residenziale (CarteMagic, Gamelife, Il Covo del Nerd, LPP Collecting…)
 - **4 rivenditori ufficiali** (fonte: `tcg.pokemon.com`)
