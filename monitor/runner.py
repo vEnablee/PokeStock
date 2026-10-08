@@ -39,7 +39,7 @@ async def run(
 
 
     soglia_q = settings.get("quarantena_dopo_fallimenti", 4)
-    giri_q = settings.get("quarantena_giri", 6)
+    riposo_ore = settings.get("quarantena_ore_riposo", 24)
 
     stores = cfg.stores
     if only_store:
@@ -81,9 +81,11 @@ async def run(
     if not only_store:
         attivi = []
         for s in stores:
-            if state.in_quarantena(s["id"]):
-                rimasti = state.consuma_quarantena(s["id"])
-                in_quarantena.append((s["id"], rimasti))
+            salta, motivo = state.in_quarantena(s["id"])
+            if salta:
+                in_quarantena.append((s["id"], motivo))
+                if verbose:
+                    print(f"  [SALTATO] {s['name']:24s} {motivo}")
             else:
                 attivi.append(s)
         stores = attivi
@@ -104,17 +106,21 @@ async def run(
 
         for res in results:
             store = cfg.store(res.store_id)
-            failures = state.mark_store(res.store_id, res.ok, res.error,
-                                        soglia_quarantena=soglia_q, giri_quarantena=giri_q)
+            esito = state.mark_store(res.store_id, res.ok, res.error,
+                                     soglia=soglia_q, riposo_ore=riposo_ore)
             if not res.ok:
                 if verbose:
                     print(f"  [ERRORE] {store['name']:24s} {res.error}")
-                # Un solo avviso, nel momento in cui lo store entra in quarantena:
-                # e' li' che smette di essere interrogato e vale la pena saperlo.
-                if (soglia_q and failures >= soglia_q
-                        and state.avviso_store_dovuto(
-                            res.store_id, settings.get("ore_silenzio_avvisi", 12))):
-                    await telegram.store_error(client, store["name"], res.error, failures)
+                # Si avvisa solo ai due passaggi che contano: quando lo store
+                # entra in pausa e quando viene spento. Nel mezzo si tace.
+                if esito["evento"] == "pausa":
+                    await telegram.store_error(client, store["name"], res.error,
+                                               f"in pausa per {riposo_ore:.0f} ore, "
+                                               f"poi verra' ritentato")
+                elif esito["evento"] == "spento":
+                    await telegram.store_error(client, store["name"], res.error,
+                                               "spento: non risponde da due cicli. "
+                                               "Riattivalo dalla dashboard quando vuoi")
                 continue
 
             # Un adapter che risponde 200 ma non estrae nulla e' un guasto

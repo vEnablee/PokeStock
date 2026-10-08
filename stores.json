@@ -45,8 +45,7 @@
     "_429_comment": "Un HTTP 429 viene trattato come errore ritentabile con backoff, non come disponibilita' sconosciuta: meglio perdere un giro che insistere.",
     "_user_agent_comment": "Firefox, non Chrome. Verificato il 2026-10-02 da IP residenziale italiano: diversi negozi rispondono 403 alla stringa di Chrome e 200 a qualunque altra (regola anti-scraper che prende di mira quell'UA). Con Firefox tornano raggiungibili 6 negozi che erano stati disattivati per errore, attribuendo il blocco all'IP invece che all'header.",
     "quarantena_dopo_fallimenti": 4,
-    "quarantena_giri": 6,
-    "_quarantena_comment": "Dopo 4 fallimenti consecutivi uno store viene saltato per i 6 giri successivi, poi ritentato. Insistere su un negozio che risponde 403 peggiora un eventuale ban e spreca tempo; un singolo avviso Telegram parte nel momento in cui entra in quarantena. Un successo azzera tutto.",
+    "_quarantena_comment": "A due cicli. Dopo 4 fallimenti consecutivi lo store va in pausa per 24 ore; scaduta la pausa viene ritentato, e se fallisce altre 4 volte viene spento e non piu' interrogato finche' non lo riattivi dalla dashboard. Un successo, in qualunque momento, azzera tutto. Si avvisa su Telegram solo ai due passaggi.",
     "allarme_fallimenti_percentuale": 50,
     "_allarme_comment": "L'allarme di blocco diffuso parte solo se la soglia viene superata per 3 giri consecutivi: un singolo intoppo di rete sul runner fa fallire meta' dei negozi e si risolve da solo, e avvisare in quel caso produce solo rumore. ore_silenzio_avvisi impedisce che lo stesso avviso si ripeta entro 12 ore.",
     "preferenze_predefinite": {
@@ -55,7 +54,8 @@
     },
     "_preferenze_comment": "Valori di partenza. Le preferenze vere vivono nello stato (quindi sul Gist), cosi' la dashboard puo' cambiarle e il monitor su Actions le legge al giro successivo. target_notificati a null significa 'tutti'; una lista di id limita gli avvisi a quei target.",
     "allarme_giri_consecutivi": 3,
-    "ore_silenzio_avvisi": 12
+    "ore_silenzio_avvisi": 12,
+    "quarantena_ore_riposo": 24
   },
   "filters": {
     "_comment": "Filtri globali applicati a TUTTI i target, in aggiunta a quelli specifici del singolo target.",
@@ -1039,7 +1039,7 @@
       "name": "Levante Computer",
       "base_url": "https://levantecomputer.it",
       "type": "woocommerce_store_api",
-      "enabled": true,
+      "enabled": false,
       "priority": 1,
       "official_retailer": false,
       "kind": "non_tcg_retailer",
@@ -1048,12 +1048,12 @@
         "fuoriclasse"
       ],
       "timeout_seconds": 40,
-      "verified_at": "2026-10-02",
       "stats": {
         "pokemon_products": 50,
         "available": 29
       },
-      "notes": "NEGOZIO DI COMPUTER che vende Pokemon. Server lento: timeout alzato a 40s."
+      "notes": "NEGOZIO DI COMPUTER che vende Pokemon. Server lento: timeout alzato a 40s.",
+      "disabled_reason": "Rimosso su richiesta il 2026-10-08: rispondeva 403 agli IP di GitHub Actions pur funzionando da IP residenziale."
     },
     {
       "id": "magicstoreshop",
@@ -1943,7 +1943,7 @@
     "parse_mode": "Markdown",
     "disable_web_page_preview": false,
     "message_template": "*DISPONIBILE A PREZZO DI LISTINO*\n`------------------------------`\n*Store*      {store_name}\n*Prodotto*   {product_title}\n*Prezzo*     {price} €   (MSRP {msrp} €)\n*Target*     {target_name}\n`------------------------------`\n[Apri la scheda prodotto]({product_url})\n_Rilevato alle {timestamp}_",
-    "error_template": "*NEGOZIO IN QUARANTENA*\n`------------------------------`\n*Negozio*    {store_id}\n*Errore*     `{error}`\n*Fallimenti* {consecutive_failures} consecutivi\nVerra' saltato per i prossimi giri e poi ritentato.",
+    "error_template": "*NEGOZIO NON RAGGIUNGIBILE*\n`------------------------------`\n*Negozio*  {store_id}\n*Errore*   `{error}`\n{stato}",
     "_notify_errors_comment": "Avvisa solo dopo N fallimenti consecutivi dello stesso store: un 503 occasionale non deve svegliarti.",
     "_emoji_note": "Template senza emoji su richiesta. Le emoji previste dalla specifica iniziale sono recuperabili dal backup stores.json.bak.",
     "global_alert_template": "*ATTENZIONE — POSSIBILE BLOCCO*\n`------------------------------`\nFalliti *{falliti}* negozi su *{totali}* ({quota}%) per *{giri}* giri di fila.\nQuando cadono tutti insieme e la cosa persiste, di solito non sono i negozi: rete irraggiungibile, oppure un blocco che riguarda il nostro indirizzo."

@@ -69,7 +69,7 @@ class Telegram:
         )
         return await self.send(client, text)
 
-    async def store_error(self, client, store_id, error, consecutive) -> bool:
+    async def store_error(self, client, store_id, error, stato) -> bool:
         text = self._render("error_template", store_id=store_id, error=str(error)[:200],
-                            consecutive_failures=consecutive)
+                            stato=stato)
         return await self.send(client, text)

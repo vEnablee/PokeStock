@@ -377,6 +377,58 @@ def salva_preferenze(cfg, valori: dict) -> str:
     return "file locale"
 
 
+def riattivazione(cfg, stato: dict) -> None:
+    """Elenco degli store spenti o in pausa dal monitor, con la riattivazione.
+
+    Lo spegnimento automatico vive nello stato, non in stores.json: il
+    workflow non puo' scrivere sul repository, e questo e' l'unico punto che
+    dashboard e monitor condividono.
+    """
+    falliti = stato.get("store_failures") or {}
+    spenti = {k: v for k, v in falliti.items() if isinstance(v, dict) and v.get("spento")}
+    pausa = {k: v for k, v in falliti.items()
+             if isinstance(v, dict) and v.get("riposo_fino_a") and not v.get("spento")}
+    if not spenti and not pausa:
+        return
+
+    st.markdown(C.section("Negozi sospesi dal monitor",
+                          f"{len(spenti)} spenti · {len(pausa)} in pausa", "alert"),
+                unsafe_allow_html=True)
+    st.caption("Dopo 4 fallimenti un negozio va in pausa per 24 ore; se al rientro ne "
+               "colleziona altri 4 viene spento. Un successo azzera tutto da solo.")
+
+    righe = []
+    for sid, v in {**spenti, **pausa}.items():
+        righe.append({
+            "negozio": (cfg.store(sid) or {}).get("name", sid),
+            "id": sid,
+            "stato": "spento" if v.get("spento") else "in pausa",
+            "errore": (v.get("errore") or "")[:60],
+            "dal": (v.get("spento_il") or v.get("quando") or "")[:16].replace("T", " "),
+        })
+    st.dataframe(pd.DataFrame(righe).drop(columns=["id"]),
+                 width="stretch", hide_index=True)
+
+    scelta = st.multiselect("Riattiva", [r["id"] for r in righe],
+                            format_func=lambda i: next(r["negozio"] for r in righe if r["id"] == i))
+    if scelta and st.button("Riattiva i negozi selezionati"):
+        from monitor import gist
+        from monitor.state import State
+        remoto = gist.da_ambiente()
+        s_stato = State(cfg.path_for("state_file"), remote=remoto)
+        n = sum(1 for sid in scelta if s_stato.riattiva_store(sid))
+        try:
+            if remoto is not None and remoto.gist_id:
+                remoto.scrivi(s_stato.payload(), descrizione="negozi riattivati dalla dashboard")
+            else:
+                s_stato.save()
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Salvataggio fallito: {exc}")
+        else:
+            st.session_state["esito_config"] = f"{n} negozi riattivati: verranno ritentati al prossimo giro."
+            st.rerun()
+
+
 def notifiche(cfg, stato: dict) -> None:
     st.markdown(C.section("Notifiche Telegram", nome_icona="alert"), unsafe_allow_html=True)
     st.caption("Le preferenze vivono nello stato condiviso: il monitor le legge "

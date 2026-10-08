@@ -397,6 +397,7 @@ def main_streamlit() -> None:
     with t2:
         views.analytics(cfg, entries, cfg.path_for("history_file"))
     with t3:
+        views.riattivazione(cfg, stato)
         views.notifiche(cfg, stato)
         st.divider()
         views.negozi(cfg)

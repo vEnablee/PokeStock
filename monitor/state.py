@@ -132,45 +132,73 @@ class State:
         }
 
     def mark_store(self, store_id: str, ok: bool, errore: str | None = None,
-                   soglia_quarantena: int = 4, giri_quarantena: int = 6) -> int:
-        """Aggiorna i fallimenti consecutivi dello store e li restituisce.
+                   soglia: int = 4, riposo_ore: float = 24) -> dict:
+        """Aggiorna i fallimenti dello store e restituisce cosa e' cambiato.
 
-        Registra anche QUANDO e PERCHE': senza data, un contatore rimasto appeso
-        faceva comparire in dashboard store che nel frattempo si erano ripresi.
+        A due cicli: dopo `soglia` fallimenti consecutivi lo store va in pausa
+        per `riposo_ore`; scaduta la pausa viene ritentato, e se fallisce altre
+        `soglia` volte viene spento. Un successo, in qualunque momento,
+        azzera tutto.
+
+        Restituisce {"conteggio", "evento"} dove evento e' None, "pausa" o
+        "spento": serve al runner per avvisare una sola volta al passaggio.
         """
         if ok:
             self.store_failures.pop(store_id, None)
-            return 0
+            return {"conteggio": 0, "evento": None}
+
         prec = self.store_failures.get(store_id)
-        count = (prec.get("count", 0) if isinstance(prec, dict) else (prec or 0)) + 1
-        voce = {"count": count, "errore": (errore or "")[:160], "quando": _iso(now())}
-        if isinstance(prec, dict) and prec.get("salta_restanti"):
-            voce["salta_restanti"] = prec["salta_restanti"]
-        if count >= soglia_quarantena > 0:
-            # messo in quarantena: saltato per i prossimi giri, poi ritentato
-            voce["salta_restanti"] = giri_quarantena
-            voce["in_quarantena_dal"] = _iso(now())
+        prec = prec if isinstance(prec, dict) else {"count": prec or 0}
+        voce = dict(prec)
+        voce["count"] = prec.get("count", 0) + 1
+        voce["errore"] = (errore or "")[:160]
+        voce["quando"] = _iso(now())
+        voce.pop("salta_restanti", None)  # retaggio della versione a giri
+
+        evento = None
+        if soglia > 0 and voce["count"] >= soglia:
+            if voce.get("ciclo", 1) >= 2:
+                voce["spento"] = True
+                voce["spento_il"] = _iso(now())
+                evento = "spento"
+            else:
+                voce["ciclo"] = 2
+                voce["riposo_fino_a"] = _iso(now() + timedelta(hours=riposo_ore))
+                voce["count"] = 0          # il secondo ciclo riparte da capo
+                evento = "pausa"
         self.store_failures[store_id] = voce
-        return count
+        return {"conteggio": voce["count"], "evento": evento}
 
     # ------------------------------------------------------------ quarantena
 
-    def in_quarantena(self, store_id: str) -> bool:
-        """True se lo store va saltato in questo giro.
-
-        Dopo N fallimenti consecutivi non ha senso continuare a bussare: se e'
-        un ban lo si peggiora, se e' offline si sprecano richieste e tempo.
-        """
+    def in_quarantena(self, store_id: str) -> tuple[bool, str]:
+        """(da saltare?, motivo). Uno store spento resta tale finche' non lo
+        riattivi dalla dashboard; uno in pausa torna da solo a scadenza."""
         v = self.store_failures.get(store_id)
-        return isinstance(v, dict) and v.get("salta_restanti", 0) > 0
+        if not isinstance(v, dict):
+            return False, ""
+        if v.get("spento"):
+            return True, "spento dopo due cicli di fallimenti"
+        fino = v.get("riposo_fino_a")
+        if fino:
+            try:
+                scade = datetime.fromisoformat(fino)
+            except ValueError:
+                return False, ""
+            if now() < scade:
+                ore = (scade - now()).total_seconds() / 3600
+                return True, f"in pausa, riprova fra {ore:.0f}h"
+            # pausa scaduta: si ritenta, mantenendo il ciclo 2
+            v.pop("riposo_fino_a", None)
+        return False, ""
 
-    def consuma_quarantena(self, store_id: str) -> int:
-        """Scala di uno i giri di quarantena rimasti e restituisce quanti ne restano."""
-        v = self.store_failures.get(store_id)
-        if isinstance(v, dict) and v.get("salta_restanti", 0) > 0:
-            v["salta_restanti"] -= 1
-            return v["salta_restanti"]
-        return 0
+    def riattiva_store(self, store_id: str) -> bool:
+        """Azzera lo stato di uno store spento o in pausa."""
+        return self.store_failures.pop(store_id, None) is not None
+
+    def store_spenti(self) -> dict[str, dict]:
+        return {k: v for k, v in self.store_failures.items()
+                if isinstance(v, dict) and v.get("spento")}
 
     def dimentica_store(self, store_ids) -> int:
         """Elimina i fallimenti di store che non vengono piu' scansionati
