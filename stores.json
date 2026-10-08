@@ -48,12 +48,14 @@
     "quarantena_giri": 6,
     "_quarantena_comment": "Dopo 4 fallimenti consecutivi uno store viene saltato per i 6 giri successivi, poi ritentato. Insistere su un negozio che risponde 403 peggiora un eventuale ban e spreca tempo; un singolo avviso Telegram parte nel momento in cui entra in quarantena. Un successo azzera tutto.",
     "allarme_fallimenti_percentuale": 50,
-    "_allarme_comment": "Se in un solo giro cade almeno il 50% dei negozi (e almeno 3), non sono i negozi: e' la rete o un blocco che riguarda noi. Parte un avviso dedicato.",
+    "_allarme_comment": "L'allarme di blocco diffuso parte solo se la soglia viene superata per 3 giri consecutivi: un singolo intoppo di rete sul runner fa fallire meta' dei negozi e si risolve da solo, e avvisare in quel caso produce solo rumore. ore_silenzio_avvisi impedisce che lo stesso avviso si ripeta entro 12 ore.",
     "preferenze_predefinite": {
       "notifiche_attive": true,
       "target_notificati": null
     },
-    "_preferenze_comment": "Valori di partenza. Le preferenze vere vivono nello stato (quindi sul Gist), cosi' la dashboard puo' cambiarle e il monitor su Actions le legge al giro successivo. target_notificati a null significa 'tutti'; una lista di id limita gli avvisi a quei target."
+    "_preferenze_comment": "Valori di partenza. Le preferenze vere vivono nello stato (quindi sul Gist), cosi' la dashboard puo' cambiarle e il monitor su Actions le legge al giro successivo. target_notificati a null significa 'tutti'; una lista di id limita gli avvisi a quei target.",
+    "allarme_giri_consecutivi": 3,
+    "ore_silenzio_avvisi": 12
   },
   "filters": {
     "_comment": "Filtri globali applicati a TUTTI i target, in aggiunta a quelli specifici del singolo target.",
@@ -1944,7 +1946,7 @@
     "error_template": "*NEGOZIO IN QUARANTENA*\n`------------------------------`\n*Negozio*    {store_id}\n*Errore*     `{error}`\n*Fallimenti* {consecutive_failures} consecutivi\nVerra' saltato per i prossimi giri e poi ritentato.",
     "_notify_errors_comment": "Avvisa solo dopo N fallimenti consecutivi dello stesso store: un 503 occasionale non deve svegliarti.",
     "_emoji_note": "Template senza emoji su richiesta. Le emoji previste dalla specifica iniziale sono recuperabili dal backup stores.json.bak.",
-    "global_alert_template": "*ATTENZIONE — POSSIBILE BLOCCO*\n`------------------------------`\nSono falliti *{falliti}* negozi su *{totali}* ({quota}%) nello stesso giro.\nQuando cadono tutti insieme di solito non sono i negozi: rete irraggiungibile, oppure un blocco che riguarda il nostro IP.\nGli store sopra soglia sono stati messi in quarantena e verranno ritentati."
+    "global_alert_template": "*ATTENZIONE — POSSIBILE BLOCCO*\n`------------------------------`\nFalliti *{falliti}* negozi su *{totali}* ({quota}%) per *{giri}* giri di fila.\nQuando cadono tutti insieme e la cosa persiste, di solito non sono i negozi: rete irraggiungibile, oppure un blocco che riguarda il nostro indirizzo."
   },
   "_TARGETS_NOTE": "Monitoraggio ristretto ai soli Elite Trainer Box / Set Allenatore Fuoriclasse, su richiesta. etb_30th e etb_megaevoluzione sono espliciti; etb_qualsiasi e' il catch-all che intercetta le espansioni future senza modifiche alla config. Se un ETB rientra in piu' target, notificalo UNA SOLA VOLTA usando il target a priority piu' bassa."
 }

@@ -111,7 +111,9 @@ async def run(
                     print(f"  [ERRORE] {store['name']:24s} {res.error}")
                 # Un solo avviso, nel momento in cui lo store entra in quarantena:
                 # e' li' che smette di essere interrogato e vale la pena saperlo.
-                if soglia_q and failures == soglia_q:
+                if (soglia_q and failures >= soglia_q
+                        and state.avviso_store_dovuto(
+                            res.store_id, settings.get("ore_silenzio_avvisi", 12))):
                     await telegram.store_error(client, store["name"], res.error, failures)
                 continue
 
@@ -178,11 +180,15 @@ async def run(
         # e' la rete o un blocco che ci riguarda. Meglio saperlo subito.
         quota = settings.get("allarme_fallimenti_percentuale", 50)
         falliti_ora = sum(1 for r in results if not r.ok)
-        if stores and falliti_ora * 100 / len(stores) >= quota and falliti_ora >= 3:
+        sopra_soglia = bool(stores) and falliti_ora * 100 / len(stores) >= quota and falliti_ora >= 3
+        if state.allarme_globale(sopra_soglia,
+                                 settings.get("allarme_giri_consecutivi", 3),
+                                 settings.get("ore_silenzio_avvisi", 12)):
             await telegram.send(client, telegram._render(
                 "global_alert_template",
                 falliti=falliti_ora, totali=len(stores),
-                quota=round(falliti_ora * 100 / len(stores))))
+                quota=round(falliti_ora * 100 / len(stores)),
+                giri=settings.get("allarme_giri_consecutivi", 3)))
 
     duration = time.perf_counter() - started
     scanned_ok = {r.store_id for r in results if r.ok}

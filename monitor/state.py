@@ -211,6 +211,51 @@ class State:
             del self.entries[key]
         return len(dropped)
 
+    # ------------------------------------------------------------- allarmi
+
+    def allarme_globale(self, scattato: bool, giri_richiesti: int,
+                        ore_silenzio: float) -> bool:
+        """True se va inviato l'allarme di blocco diffuso.
+
+        Un solo giro storto non significa nulla: una disconnessione di pochi
+        secondi sul runner fa fallire meta' dei negozi e poi tutto torna
+        normale. Si avvisa solo se la condizione resiste per piu' giri di
+        fila, e non si ripete finche' non rientra.
+        """
+        voce = self.meta.setdefault("allarme_globale", {})
+        if not scattato:
+            voce["giri_consecutivi"] = 0
+            return False
+
+        voce["giri_consecutivi"] = voce.get("giri_consecutivi", 0) + 1
+        if voce["giri_consecutivi"] < giri_richiesti:
+            return False
+
+        ultimo = voce.get("ultimo_invio")
+        if ultimo:
+            try:
+                if now() - datetime.fromisoformat(ultimo) < timedelta(hours=ore_silenzio):
+                    return False
+            except ValueError:
+                pass
+        voce["ultimo_invio"] = _iso(now())
+        return True
+
+    def avviso_store_dovuto(self, store_id: str, ore_silenzio: float) -> bool:
+        """True se si puo' avvisare per questo store senza ripetersi troppo."""
+        voce = self.store_failures.get(store_id)
+        if not isinstance(voce, dict):
+            return True
+        ultimo = voce.get("ultimo_avviso")
+        if ultimo:
+            try:
+                if now() - datetime.fromisoformat(ultimo) < timedelta(hours=ore_silenzio):
+                    return False
+            except ValueError:
+                pass
+        voce["ultimo_avviso"] = _iso(now())
+        return True
+
     # ----------------------------------------------------------- preferenze
 
     def preferenze(self, predefinite: dict | None = None) -> dict:
