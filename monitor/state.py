@@ -192,6 +192,20 @@ class State:
             v.pop("riposo_fino_a", None)
         return False, ""
 
+    def metti_in_pausa(self, store_id: str, ore: float, motivo: str = "") -> None:
+        """Mette uno store a riposo senza contarlo fra i fallimenti.
+
+        Serve per il 429: il negozio funziona, sta solo chiedendo di
+        rallentare, quindi non ha senso avvicinarlo allo spegnimento.
+        """
+        voce = self.store_failures.get(store_id)
+        voce = dict(voce) if isinstance(voce, dict) else {}
+        voce["riposo_fino_a"] = _iso(now() + timedelta(hours=max(ore, 0.25)))
+        voce["errore"] = (motivo or "HTTP 429")[:160]
+        voce["quando"] = _iso(now())
+        voce.setdefault("count", 0)
+        self.store_failures[store_id] = voce
+
     def riattiva_store(self, store_id: str) -> bool:
         """Azzera lo stato di uno store spento o in pausa."""
         return self.store_failures.pop(store_id, None) is not None
@@ -238,6 +252,14 @@ class State:
         for key in dropped:
             del self.entries[key]
         return len(dropped)
+
+    # -------------------------------------------------------------- cadenza
+
+    def avanza_giro(self) -> int:
+        """Incrementa e restituisce il contatore dei giri completi."""
+        n = int(self.meta.get("contatore_giri", 0)) + 1
+        self.meta["contatore_giri"] = n
+        return n
 
     # ------------------------------------------------------------- allarmi
 

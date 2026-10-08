@@ -62,6 +62,7 @@ class StoreResult:
     products: list[Product] = field(default_factory=list)
     error: str | None = None
     duration_s: float = 0.0
+    attesa_s: float | None = None   # valorizzato solo su HTTP 429
 
     @property
     def ok(self) -> bool:

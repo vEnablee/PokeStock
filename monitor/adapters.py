@@ -52,6 +52,20 @@ class FetchError(RuntimeError):
     pass
 
 
+class RateLimited(FetchError):
+    """Il negozio ha risposto 429: sta chiedendo di rallentare.
+
+    Non si ritenta. Insistere su un 429 e' esattamente il comportamento che
+    porta al blocco, e i tentativi aggiuntivi triplicano il carico proprio
+    quando il sito chiede tregua.
+    """
+
+    def __init__(self, attesa_s: float):
+        self.attesa_s = attesa_s
+        super().__init__(f"HTTP 429: il negozio chiede di rallentare "
+                         f"(attesa suggerita {attesa_s:.0f}s)")
+
+
 # --------------------------------------------------------------------------- http
 
 async def _get(client: httpx.AsyncClient, url: str, cfg, store: dict, *, params=None, expect_json=False):
@@ -91,9 +105,11 @@ async def _get(client: httpx.AsyncClient, url: str, cfg, store: dict, *, params=
             r = await client.get(url, params=params, headers=headers, timeout=timeout,
                                  follow_redirects=cfg.settings.get("follow_redirects", True))
             if r.status_code == 429:
-                # il server ci sta dicendo esplicitamente di rallentare: si rispetta
-                wait = float(r.headers.get("retry-after", backoff * 4))
-                raise FetchError(f"HTTP 429 (rate limit), attesa suggerita {wait:g}s")
+                try:
+                    attesa = float(r.headers.get("retry-after", 3600))
+                except ValueError:
+                    attesa = 3600.0
+                raise RateLimited(attesa)
             if r.status_code >= 400:
                 raise FetchError(f"HTTP {r.status_code}")
             ctype = r.headers.get("content-type", "")
@@ -101,6 +117,8 @@ async def _get(client: httpx.AsyncClient, url: str, cfg, store: dict, *, params=
                 raise FetchError(f"atteso JSON, ricevuto '{ctype.split(';')[0] or 'ignoto'}'")
             cache.put(url, params, r.content, dict(r.headers), ttl)
             return r.json() if expect_json else r
+        except RateLimited:
+            raise  # mai ritentare: e' il contrario di quello che serve
         except Exception as exc:  # noqa: BLE001 - si ritenta su qualunque errore di rete
             last = exc
             if attempt < retries:
@@ -400,7 +418,9 @@ def _visible_price(soup: BeautifulSoup) -> str | None:
 # Keyword usate per decidere quali URL visitare sui siti HTML.
 # Non sono criteri di match (quelli stanno nei target): servono solo a non
 # scaricare migliaia di pagine inutili.
-URL_KEYWORDS = ["fuoriclasse", "allenatore", "elite-trainer", "elite_trainer", "etb", "pokemon"]
+# Solo termini da ETB: "pokemon" da solo faceva visitare anche peluche, figure e
+# gadget, moltiplicando le richieste per nulla. Sovrascrivibile per-store.
+URL_KEYWORDS = ["fuoriclasse", "allenatore", "elite-trainer", "elite_trainer", "etb"]
 
 
 async def html_generic(client, cfg, store) -> list[Product]:
@@ -428,7 +448,8 @@ async def html_generic(client, cfg, store) -> list[Product]:
         direct = [p for p in (_from_jsonld(n, store, entry) for n in _jsonld_products(html)) if p]
         if direct:
             return direct
-        urls.extend(_candidate_links(html, base, URL_KEYWORDS))
+        urls.extend(_candidate_links(html, base,
+                                     store.get("url_keywords") or URL_KEYWORDS))
 
     return await _scrape_pages(client, cfg, store, list(dict.fromkeys(urls)), encoding)
 

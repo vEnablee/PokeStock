@@ -36,10 +36,10 @@
     "dedupe_across_targets": true,
     "_dedupe_comment": "Un ETB 30° matcha sia etb_30th sia etb_qualsiasi. Con questo flag, ogni (store, prodotto) genera UNA sola notifica, attribuita al target con 'priority' piu' bassa. Senza, ricevi 2-3 messaggi per lo stesso oggetto.",
     "_concurrency_comment": "Store interrogati in parallelo. Tenuto basso: molti di questi negozi stanno su hosting condiviso. 4 store in parallelo bastano a chiudere un giro in ~2 minuti.",
-    "min_seconds_between_requests_per_store": 1.0,
+    "min_seconds_between_requests_per_store": 1.5,
     "_rate_limit_comment": "Spaziatura minima fra due richieste allo STESSO dominio. Insieme al jitter evita il pattern a raffica che fa scattare le protezioni anti-bot. Non rallenta il giro complessivo perche' gli store vengono interrogati in parallelo fra loro.",
-    "max_product_pages": 15,
-    "_max_product_pages_comment": "Tetto di pagine prodotto visitate per store HTML. Abbassato da 40: sui siti HTML ogni prodotto costa una richiesta, ed e' li' che si rischia il ban.",
+    "max_product_pages": 10,
+    "_max_product_pages_comment": "Tetto di schede prodotto visitate per negozio a ogni giro. Con 96 giri al giorno, ogni unita' qui vale circa 100 richieste quotidiane allo stesso sito: e' la leva principale sul carico, ed e' da li' che arrivano i 429.",
     "cache_ttl_seconds": 0,
     "_cache_comment": "Cache su disco delle risposte HTTP, in .cache/. Tenere 0 in produzione. In sviluppo usare --cache (TTL 3600): rilanciare lo scraper non costa NESSUNA richiesta finche' le voci non scadono. Indispensabile per iterare sul codice senza farsi bannare.",
     "_429_comment": "Un HTTP 429 viene trattato come errore ritentabile con backoff, non come disponibilita' sconosciuta: meglio perdere un giro che insistere.",
@@ -55,7 +55,8 @@
     "_preferenze_comment": "Valori di partenza. Le preferenze vere vivono nello stato (quindi sul Gist), cosi' la dashboard puo' cambiarle e il monitor su Actions le legge al giro successivo. target_notificati a null significa 'tutti'; una lista di id limita gli avvisi a quei target.",
     "allarme_giri_consecutivi": 3,
     "ore_silenzio_avvisi": 12,
-    "quarantena_ore_riposo": 24
+    "quarantena_ore_riposo": 24,
+    "_cadenza_comment": "ogni_n_giri interroga un negozio un giro su N invece che a ogni giro. Gli adapter HTML costano una richiesta per scheda prodotto, quindi su 96 giri al giorno diventano migliaia di richieste a un solo sito: e' da li' che arriva il 429. I negozi con API (Shopify, WooCommerce) costano 1-3 richieste e restano a ogni giro."
   },
   "filters": {
     "_comment": "Filtri globali applicati a TUTTI i target, in aggiunta a quelli specifici del singolo target.",
@@ -1180,7 +1181,8 @@
         ]
       },
       "verified_evidence": "Pagina prodotto scaricata con curl semplice: contiene '\"availability\":\"https://schema.org/OutOfStock\"'. Nessun blocco bot riscontrato.",
-      "notes": "RIVENDITORE UFFICIALE. Le pagine prodotto rispondono; l'endpoint di ricerca NON e' stato verificato, quindi partire dalle category page e seguire i link prodotto."
+      "notes": "RIVENDITORE UFFICIALE. Le pagine prodotto rispondono; l'endpoint di ricerca NON e' stato verificato, quindi partire dalle category page e seguire i link prodotto.",
+      "ogni_n_giri": 3
     },
     {
       "id": "toyscenter",
@@ -1207,7 +1209,7 @@
         "https://www.toyscenter.it/tag-prodotto/pokemon-30-anniversario/",
         "https://www.toyscenter.it/brand/pokemon/"
       ],
-      "max_product_pages": 30,
+      "max_product_pages": 12,
       "json_marker": "ProductCard(",
       "json_fields": {
         "title": "name",
@@ -1240,10 +1242,11 @@
       },
       "verified_evidence": "HTTP 200, markup contiene InStock/OutOfStock. Il parametro &stock=y filtra gia' lato server i soli disponibili.",
       "notes": "La RICERCA del sito restituisce solo merchandise (peluche, lenzuola, Monopoly): nessuna carta. Le carte stanno nella categoria dedicata /c/1060/.../carte-collezionabili, usata qui come entry point. Verificato il 2026-10-02 ispezionando i titoli estratti.",
-      "max_product_pages": 30,
+      "max_product_pages": 12,
       "entry_points": [
         "https://giodicart.it/c/1060/giocattoli/kidult/carte-collezionabili"
-      ]
+      ],
+      "ogni_n_giri": 3
     },
     {
       "id": "toysin",
@@ -1269,7 +1272,8 @@
         ]
       },
       "verified_evidence": "sitemap.xml = 24.382 URL, di cui 215 contengono 'pokemon'. Pagina prodotto HTTP 200 con campo 'Disponibilita':.",
-      "notes": "ATTENZIONE: charset ISO-8859-1, va decodificato esplicitamente o i caratteri accentati si rompono. Nessun endpoint di ricerca utilizzabile: si passa per la sitemap."
+      "notes": "ATTENZIONE: charset ISO-8859-1, va decodificato esplicitamente o i caratteri accentati si rompono. Nessun endpoint di ricerca utilizzabile: si passa per la sitemap.",
+      "ogni_n_giri": 3
     },
     {
       "id": "pianetahobby",
@@ -1295,7 +1299,8 @@
         ]
       },
       "verified_evidence": "HTTP 200, markup contiene 'disponibile'. Nessun JSON-LD rilevato: serve parsing testuale con BeautifulSoup.",
-      "notes": "RIVENDITORE UFFICIALE (elencato su tcg.pokemon.com)."
+      "notes": "RIVENDITORE UFFICIALE (elencato su tcg.pokemon.com).",
+      "ogni_n_giri": 3
     },
     {
       "id": "magicstore",
@@ -1318,7 +1323,8 @@
           "non disponibile"
         ]
       },
-      "verified_evidence": "HTTP 200, markup contiene sia 'disponibile' sia 'Non disponibile'. Attenzione: 'Non disponibile' contiene 'disponibile' come sottostringa, l'ordine dei controlli conta."
+      "verified_evidence": "HTTP 200, markup contiene sia 'disponibile' sia 'Non disponibile'. Attenzione: 'Non disponibile' contiene 'disponibile' come sottostringa, l'ordine dei controlli conta.",
+      "ogni_n_giri": 3
     },
     {
       "id": "cardgamecorner",
@@ -1340,7 +1346,8 @@
         ]
       },
       "verified_evidence": "Pagina prodotto HTTP 200 con 'disponibile'.",
-      "notes": "Spesso molto sopra MSRP (bundle 6 buste visto a 69,90 contro 36,99): il filtro prezzo lo scartera' quasi sempre."
+      "notes": "Spesso molto sopra MSRP (bundle 6 buste visto a 69,90 contro 36,99): il filtro prezzo lo scartera' quasi sempre.",
+      "ogni_n_giri": 3
     },
     {
       "id": "vendiloshop",
@@ -1367,7 +1374,7 @@
         "fuoriclasse",
         "pokemon"
       ],
-      "max_product_pages": 25,
+      "max_product_pages": 12,
       "disabled_reason": "La ricerca interna risponde 200 e contiene i prodotti, ma l'adapter non estrae nulla: i link alle schede non seguono uno schema che il filtro per parole chiave riconosca. Serve ispezionare il markup dei risultati per capire come sono costruiti. Spento per non sprecare una richiesta a ogni giro."
     },
     {
@@ -1394,7 +1401,7 @@
         "fuoriclasse",
         "pokemon"
       ],
-      "max_product_pages": 25,
+      "max_product_pages": 12,
       "notes": "PrestaShop. La homepage non porta a una categoria Pokemon (c'e' solo LEGO Pokemon), ma la ricerca interna risponde bene. Verificato il 2026-10-03.",
       "disabled_reason": "La ricerca interna risponde 200 e contiene i prodotti, ma l'adapter non estrae nulla: i link alle schede non seguono uno schema che il filtro per parole chiave riconosca. Serve ispezionare il markup dei risultati per capire come sono costruiti. Spento per non sprecare una richiesta a ogni giro."
     },
@@ -1440,7 +1447,8 @@
         ]
       },
       "verified_evidence": "HTTP 200 sulla category page. Marker schema.org non rilevati nel primo blocco: serve ispezione del DOM per i selettori precisi.",
-      "notes": "Da rifinire: i selettori non sono ancora confermati."
+      "notes": "Da rifinire: i selettori non sono ancora confermati.",
+      "ogni_n_giri": 3
     },
     {
       "_section": "===== TIER 4 - DISABILITATI: bloccano gli IP datacenter (403/503/timeout). NON funzioneranno da GitHub Actions senza proxy residenziale italiano o runner self-hosted. ====="
@@ -1539,7 +1547,8 @@
         "https://www.rossettimarket.it/c/giocattoli-pokemon-box",
         "https://www.rossettimarket.it/c/giocattoli-pokemon-bustine"
       ],
-      "max_product_pages": 25
+      "max_product_pages": 12,
+      "ogni_n_giri": 3
     },
     {
       "id": "strategia2",
@@ -1554,11 +1563,12 @@
       "entry_points": [
         "https://www.strategia2.it/categoria/giochi-di-carte-collezionabili/"
       ],
-      "max_product_pages": 25,
+      "max_product_pages": 12,
       "search_url": "https://www.strategia2.it/?s={query}&post_type=product",
       "search_terms": [
         "fuoriclasse"
-      ]
+      ],
+      "ogni_n_giri": 3
     },
     {
       "id": "magicmerchant",
@@ -1578,7 +1588,8 @@
       "verified_at": "2026-10-02",
       "disabled_reason_precedente": "HTTP 403 da IP datacenter.",
       "notes": "Era disattivato per 403: il blocco dipendeva dallo User-Agent di Chrome, non dall'IP. Con Firefox risponde 200. Estrae pochi prodotti dalla homepage: andrebbe individuata una categoria Pokemon dedicata per renderlo davvero utile.",
-      "priority": 3
+      "priority": 3,
+      "ogni_n_giri": 3
     },
     {
       "id": "mangaloco",
@@ -1872,7 +1883,8 @@
       "verified_at": "2026-10-02",
       "disabled_reason_precedente": "HTTP 403 da IP datacenter.",
       "notes": "Era disattivato per 403: il blocco dipendeva dallo User-Agent di Chrome, non dall'IP. Con Firefox risponde 200. Estrae pochi prodotti dalla homepage: andrebbe individuata una categoria Pokemon dedicata per renderlo davvero utile.",
-      "priority": 3
+      "priority": 3,
+      "ogni_n_giri": 3
     },
     {
       "id": "universetcg",

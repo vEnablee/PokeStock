@@ -20,6 +20,10 @@ async def scan_store(client, cfg: Config, store: dict) -> StoreResult:
         adapter = adapters.get(store["type"])
         products = await adapter(client, cfg, store)
         return StoreResult(store["id"], products, None, time.perf_counter() - started)
+    except adapters.RateLimited as exc:
+        res = StoreResult(store["id"], [], str(exc), time.perf_counter() - started)
+        res.attesa_s = exc.attesa_s
+        return res
     except Exception as exc:  # noqa: BLE001 - un sito rotto non deve fermare il run
         return StoreResult(store["id"], [], f"{type(exc).__name__}: {exc}",
                            time.perf_counter() - started)
@@ -77,10 +81,20 @@ async def run(
     # Gli store in quarantena non vengono interrogati: dopo N fallimenti di fila
     # insistere peggiora un eventuale ban e spreca tempo. Si riprovano dopo
     # qualche giro.
+    # Non tutti i negozi meritano la stessa frequenza: uno Shopify costa una
+    # richiesta, uno HTML anche quindici. Quelli pesanti si interrogano un giro
+    # su N, sfalsati fra loro perche' non cadano tutti nello stesso giro.
+    giro = state.avanza_giro() if not only_store else 0
+
     in_quarantena = []
+    saltati_cadenza = 0
     if not only_store:
         attivi = []
         for s in stores:
+            ogni = int(s.get("ogni_n_giri", 1) or 1)
+            if ogni > 1 and (giro + sum(map(ord, s["id"]))) % ogni:
+                saltati_cadenza += 1
+                continue
             salta, motivo = state.in_quarantena(s["id"])
             if salta:
                 in_quarantena.append((s["id"], motivo))
@@ -106,6 +120,16 @@ async def run(
 
         for res in results:
             store = cfg.store(res.store_id)
+            # Un 429 non e' un guasto: e' una richiesta di tregua. Si mette
+            # in pausa subito il tempo indicato dal negozio, senza aspettare
+            # di accumulare fallimenti e senza spegnerlo.
+            attesa = getattr(res, "attesa_s", None)
+            if attesa:
+                state.metti_in_pausa(res.store_id, attesa / 3600, res.error)
+                if verbose:
+                    print(f"  [TREGUA ] {store['name']:24s} pausa di {attesa/3600:.1f}h")
+                continue
+
             esito = state.mark_store(res.store_id, res.ok, res.error,
                                      soglia=soglia_q, riposo_ore=riposo_ore)
             if not res.ok:
@@ -207,6 +231,7 @@ async def run(
     summary = {
         "ts": stamp,
         "in_quarantena": len(in_quarantena),
+        "saltati_per_cadenza": saltati_cadenza,
         "duration_s": round(duration, 1),
         "stores_total": len(stores),
         "stores_ok": sum(1 for r in results if r.ok),
